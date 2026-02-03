@@ -1,6 +1,6 @@
 {
   "name": "@ton-community/tlb-runtime",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "description": "TL‑B Runtime is a library for parsing and (de)serializing data according to TL‑B schemas",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,6 +9,7 @@
   ],
   "prettier": "@ton/toolchain/prettier",
   "scripts": {
+    "qa": "yarn build && yarn lint && yarn test --coverage",
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "eslint . --max-warnings 0",
@@ -42,16 +43,15 @@
   "homepage": "https://github.com/ton-community/tlb-runtime#readme",
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
-    "@ton/core": "^0.62.0",
     "@ton/toolchain": "github:the-ton-tech/toolchain#v1",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
+    "eslint": "^9.39.2",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "prettier": "^3.5.3",
-    "eslint": "^9.27.0",
     "rimraf": "^5.0.5"
   },
   "engines": {
@@ -60,12 +60,10 @@
   "publishConfig": {
     "access": "public"
   },
-  "peerDependencies": {
-    "@ton/core": "^0.62.0"
-  },
   "dependencies": {
-    "@ton-community/tlb-codegen": "https://gist.github.com/ilyar/baac357ceafa1112161418d7df5247b9/raw/3d7cf9e6cfe85e7d0321319f372dc2d12d11d4ce/ton-community-tlb-codegen-2.0.0.tgz",
-    "@ton-community/tlb-parser": "https://gist.github.com/ilyar/baac357ceafa1112161418d7df5247b9/raw/3d7cf9e6cfe85e7d0321319f372dc2d12d11d4ce/ton-community-tlb-parser-0.2.0.tgz"
+    "@ton-community/tlb-parser": "https://gist.github.com/ilyar/baac357ceafa1112161418d7df5247b9/raw/3d7cf9e6cfe85e7d0321319f372dc2d12d11d4ce/ton-community-tlb-parser-0.2.0.tgz",
+    "@ton/core": "^0.63.0",
+    "@ton/crypto": "^3.3.0"
   },
   "packageManager": "yarn@4.17.0+sha512.c2957de2f9025ab14d63b24d0d8be1f1655810e22c341042c27f7ecd017b180ec12db73d69ac366d71b304ef9f069349ce462de96f04f8f1da317f4f762c95ae"
 }
