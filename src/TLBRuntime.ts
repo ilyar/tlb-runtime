@@ -45,6 +45,9 @@ export type DecodedCell =
     | DecodedCell[]
     | TypeCell;
 
+/** @deprecated Use TypedCell for decoded records or DecodedCell for field values. */
+export type ParsedCell = unknown;
+
 export type TypedCell = TypeCell & DecodedCell;
 
 export { TLBRuntimeError, TLBSchemaError, TLBDataError };
@@ -135,7 +138,7 @@ export interface TLBRuntimeConfig {
 }
 
 // Runtime TL-B serialization/deserialization
-export class TLBRuntime<T extends TypedCell = TypedCell> {
+export class TLBRuntime<T = ParsedCell> {
     private readonly tagMap = new Map<string, { type: TLBType; item: TLBConstructor }>();
     private maxSizeTag = 0;
     private readonly schemaAst: Schema;
@@ -167,10 +170,7 @@ export class TLBRuntime<T extends TypedCell = TypedCell> {
         }
     }
 
-    static from<T extends TypedCell = TypedCell>(
-        schema: string,
-        config: Partial<TLBRuntimeConfig> = {},
-    ): Result<TLBRuntime<T>> {
+    static from<T = ParsedCell>(schema: string, config: Partial<TLBRuntimeConfig> = {}): Result<TLBRuntime<T>> {
         try {
             return {
                 success: true,
@@ -180,6 +180,16 @@ export class TLBRuntime<T extends TypedCell = TypedCell> {
             const errorMessage = error instanceof Error ? error.message : 'Failed to convert schema';
             return { success: false, error: new TLBSchemaError(errorMessage, error) };
         }
+    }
+
+    /** Returns normalized types in schema order. */
+    getTypes(): ReadonlyMap<string, TLBType> {
+        return this.schemaAst.getTLBTypes();
+    }
+
+    /** @deprecated Use getTypes() instead. */
+    get types(): ReadonlyMap<string, TLBType> {
+        return this.getTypes();
     }
 
     changeSchema(schema: string): Result<TLBRuntime<T>> {
@@ -193,10 +203,15 @@ export class TLBRuntime<T extends TypedCell = TypedCell> {
     }
 
     decodeCell(data: Cell | string): TypedCell {
-        return unwrap(this.deserialize(data));
+        return unwrap(this.deserialize(data)) as TypedCell;
     }
 
-    encodeCell(data: TypedCell | string): Cell {
+    /** @deprecated Use decodeCell instead. */
+    parseCell(data: Cell | string): ParsedCell {
+        return this.decodeCell(data);
+    }
+
+    encodeCell(data: unknown): Cell {
         if (typeof data === 'string') {
             data = JSON.parse(data) as T;
         }
@@ -4922,11 +4937,18 @@ export class TLBRuntime<T extends TypedCell = TypedCell> {
 }
 
 // Export a simple API for users
-export function runtimeBySchema<T extends TypedCell = TypedCell>(schema: string): TLBRuntime<T> {
+export function runtimeBySchema<T = TypedCell>(schema: string): TLBRuntime<T> {
     return unwrap(TLBRuntime.from(schema));
 }
 
-export function runtimeBy<T extends TypedCell = TypedCell>(schema: string | Cell): TLBRuntime<T> {
+export function runtimeBy<T = TypedCell>(schema: string | Cell): TLBRuntime<T> {
     if (typeof schema === 'string') return unwrap(TLBRuntime.from(schema));
     throw new TLBSchemaError('Not implemented');
+}
+
+/** @deprecated Use runtimeBy instead. */
+export function parseTLB<T = ParsedCell>(schema: string): TLBRuntime<T> {
+    const result = TLBRuntime.from<T>(schema);
+    if (!result.success) throw new TLBSchemaError('Bad Schema', result.error);
+    return result.value;
 }

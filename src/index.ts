@@ -1,5 +1,5 @@
-export { replacer, encodeCell, decodeCell } from './parser';
-export { TypedCell, DecodedCell, TLBRuntime, runtimeBySchema, runtimeBy } from './TLBRuntime';
+export { replacer, encodeCell, decodeCell, parseCell } from './parser';
+export { ParsedCell, TypedCell, DecodedCell, TLBRuntime, runtimeBySchema, runtimeBy, parseTLB } from './TLBRuntime';
 export { TLBDataError, TLBRuntimeError, TLBSchemaError } from './errors';
 export { Success, Failure, Result, unwrap } from './Result';
 export { blockSchema } from './blockSchema';

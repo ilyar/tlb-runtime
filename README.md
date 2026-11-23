@@ -10,10 +10,12 @@ npm install @ton-community/tlb-runtime
 
 ## Usage
 
+For new code, use `runtimeBy(schema)` and `decodeCell(schema, cell)` or `runtime.decodeCell(cell)`. The previous names `parseTLB`, `parseCell` and `runtime.parseCell` remain available with deprecation annotations. Use `TypedCell` for decoded records and `DecodedCell` for field values in place of the deprecated `ParsedCell` type.
+
 ### Simple
 
 ```typescript
-import { parseTLB } from '@ton-community/tlb-runtime';
+import { runtimeBy } from '@ton-community/tlb-runtime';
 
 interface Data {
     kind: 'Foo';
@@ -21,7 +23,7 @@ interface Data {
 }
 
 // language=tlb
-const runtime = parseTLB<Data>('_ x:# = Foo;');
+const runtime = runtimeBy<Data>('_ x:# = Foo;');
 
 const pack = runtime.serialize({
     kind: 'Foo',
@@ -46,7 +48,7 @@ if (unpack.success) {
 ## TEP-74 Fungible tokens (Jettons)
 
 ```typescript
-import { parseTLB } from '@ton-community/tlb-runtime';
+import { runtimeBy } from '@ton-community/tlb-runtime';
 
 // language=tlb
 const schema = `nothing$0 {X:Type} = Maybe X;
@@ -66,7 +68,7 @@ burn#595f07bc
  custom_payload:(Maybe ^Cell)
  = InternalMsgBody;`;
 
-const runtime = parseTLB(schema);
+const runtime = runtimeBy(schema);
 const pack = runtime.serialize({
     kind: 'InternalMsgBody',
     query_id: 0,
