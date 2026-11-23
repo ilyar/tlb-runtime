@@ -9,6 +9,7 @@
   ],
   "prettier": "@ton/toolchain/prettier",
   "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "qa": "yarn build && yarn lint && yarn test --coverage",
     "build": "tsc",
     "dev": "tsc --watch",
@@ -21,8 +22,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "fmt": "prettier --write -l --cache .",
-    "fmt:check": "prettier --check --cache .",
-    "clean": "rimraf dist"
+    "fmt:check": "prettier --check --cache ."
   },
   "keywords": [
     "ton",
@@ -48,11 +48,10 @@
     "@types/node": "^24.10.1",
     "eslint": "^9.39.2",
     "jest": "^30.2.0",
+    "prettier": "^3.5.3",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3",
-    "prettier": "^3.5.3",
-    "rimraf": "^5.0.5"
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -66,5 +65,8 @@
     "@ton/core": "^0.63.0",
     "@ton/crypto": "^3.3.0"
   },
+  "bundleDependencies": [
+    "@ton-community/tlb-parser"
+  ],
   "packageManager": "yarn@4.17.0+sha512.c2957de2f9025ab14d63b24d0d8be1f1655810e22c341042c27f7ecd017b180ec12db73d69ac366d71b304ef9f069349ce462de96f04f8f1da317f4f762c95ae"
 }
