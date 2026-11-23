@@ -10,7 +10,7 @@ npm install @ton-community/tlb-runtime
 
 ## Usage
 
-For new code, use `runtimeBy(schema)` and `decodeCell(schema, cell)` or `runtime.decodeCell(cell)`. The previous names `parseTLB`, `parseCell` and `runtime.parseCell` remain available with deprecation annotations. Use `TypedCell` for decoded records and `DecodedCell` for field values in place of the deprecated `ParsedCell` type.
+For new code, use `runtimeBy(schema)` and `decodeCell(schema, cell)` or `runtime.decodeCell(cell)`. The deprecated schema factory `parseTLB` uses the previous schema compiler to preserve its built-in types and normalized field names. A runtime created this way keeps that compiler when its schema changes. The previous names `parseTLB`, `parseCell` and `runtime.parseCell` remain available with deprecation annotations. Use `TypedCell` for decoded records and `DecodedCell` for field values in place of the deprecated `ParsedCell` type.
 
 ### Simple
 

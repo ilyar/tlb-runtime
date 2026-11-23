@@ -99,7 +99,7 @@ export interface TLBCellType {
 
 export interface TLBBoolType {
     kind: 'TLBBoolType';
-    value?: TLBFieldType;
+    value?: boolean;
 }
 
 export interface TLBConditionalType {
@@ -138,8 +138,6 @@ export interface TLBCondType {
 
 export interface TLBTupleType {
     kind: 'TLBTupleType';
-    times: TLBMathExpr;
-    value: TLBFieldType;
 }
 
 export type TLBFieldType =
@@ -158,7 +156,9 @@ export type TLBFieldType =
     | TLBCellInsideType
     | TLBHashmapType
     | TLBCondType
-    | TLBTupleType;
+    | TLBTupleType
+    | { kind: 'TLBNegatedType'; variableName: string }
+    | { kind: 'TLBExoticType' };
 
 // Field definition
 export interface TLBField {

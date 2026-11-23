@@ -12,6 +12,7 @@ import {
     DictionaryKeyTypes,
 } from '@ton/core';
 
+import { compileLegacySchema } from './legacySchema';
 import { Schema } from './schema';
 import { bitsToString, normalizeBitString, stringToBits, toCell } from './common';
 import { MathExprEvaluator } from './MathExprEvaluator';
@@ -141,23 +142,19 @@ export interface TLBRuntimeConfig {
 export class TLBRuntime<T = ParsedCell> {
     private readonly tagMap = new Map<string, { type: TLBType; item: TLBConstructor }>();
     private maxSizeTag = 0;
-    private readonly schemaAst: Schema;
+    private readonly typeMap: ReadonlyMap<string, TLBType>;
     private readonly lastTypeName: string;
     private recursionDepth = 0;
     private readonly MAX_RECURSION_DEPTH = 100; // Limit to prevent infinite recursion
     private constructor(
         readonly schema: string,
         private readonly config: Partial<TLBRuntimeConfig> = {},
+        private readonly compileSchema = (code: string) => unwrap(Schema.from(code)).getTLBTypes(),
     ) {
-        const internalResult = Schema.from(schema);
-        if (!internalResult.success) {
-            throw internalResult.error;
-        }
-        this.schemaAst = internalResult.value;
-        const part = schema.split('=');
-        this.lastTypeName = part[part.length - 1].split(';')[0].trim().split(' ')[0].trim();
+        this.typeMap = compileSchema(schema);
+        this.lastTypeName = Array.from(this.typeMap.keys()).at(-1) ?? '';
         config.autoText = config.autoText ?? true;
-        for (const type of this.schemaAst.getTLBTypes().values()) {
+        for (const type of this.typeMap.values()) {
             for (const item of type.constructors) {
                 if (item.tag.bitLen > 0) {
                     if (item.tag.bitLen > this.maxSizeTag) {
@@ -171,10 +168,25 @@ export class TLBRuntime<T = ParsedCell> {
     }
 
     static from<T = ParsedCell>(schema: string, config: Partial<TLBRuntimeConfig> = {}): Result<TLBRuntime<T>> {
+        return TLBRuntime.create(schema, config);
+    }
+
+    /** @deprecated Use runtimeBy for schemas supported by the current parser. */
+    static parseTLB<T = ParsedCell>(schema: string): TLBRuntime<T> {
+        const result = TLBRuntime.create<T>(schema, {}, compileLegacySchema);
+        if (!result.success) throw new TLBSchemaError('Bad Schema', result.error);
+        return result.value;
+    }
+
+    private static create<T>(
+        schema: string,
+        config: Partial<TLBRuntimeConfig>,
+        compileSchema?: (code: string) => ReadonlyMap<string, TLBType>,
+    ): Result<TLBRuntime<T>> {
         try {
             return {
                 success: true,
-                value: new TLBRuntime(schema, config),
+                value: new TLBRuntime(schema, config, compileSchema),
             };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to convert schema';
@@ -184,7 +196,7 @@ export class TLBRuntime<T = ParsedCell> {
 
     /** Returns normalized types in schema order. */
     getTypes(): ReadonlyMap<string, TLBType> {
-        return this.schemaAst.getTLBTypes();
+        return this.typeMap;
     }
 
     /** @deprecated Use getTypes() instead. */
@@ -199,7 +211,7 @@ export class TLBRuntime<T = ParsedCell> {
                 value: this,
             };
         }
-        return TLBRuntime.from(schema, this.config);
+        return TLBRuntime.create(schema, this.config, this.compileSchema);
     }
 
     decodeCell(data: Cell | string): TypedCell {
@@ -269,7 +281,7 @@ export class TLBRuntime<T = ParsedCell> {
             }
         }
 
-        const types = this.schemaAst.getTLBTypeNames();
+        const types = Array.from(this.typeMap.keys());
         for (const typeName of types.slice().reverse()) {
             if (typeName === this.lastTypeName) continue; // Already tried
             const result = this.deserializeByTypeName(typeName, slice.clone());
@@ -283,7 +295,7 @@ export class TLBRuntime<T = ParsedCell> {
 
     // Deserialize data from a Slice based on a TL-B type name
     deserializeByTypeName(typeName: string, slice: Slice, context?: ParameterContext): Result<T> {
-        const type = this.schemaAst.getTLBType(typeName);
+        const type = this.typeMap.get(typeName);
         if (!type) {
             return {
                 success: false,
@@ -308,7 +320,7 @@ export class TLBRuntime<T = ParsedCell> {
     serializeByTypeName(typeKind: string, data: T): Result<Builder> {
         const sep = typeKind.indexOf('_');
         const typeName = sep === -1 ? typeKind : typeKind.slice(0, sep);
-        const type = this.schemaAst.getTLBType(typeName);
+        const type = this.typeMap.get(typeName);
         if (!type) {
             return {
                 success: false,
@@ -1452,7 +1464,7 @@ export class TLBRuntime<T = ParsedCell> {
                 const typeName = match.typeName;
                 const argsStr = match.argsStr;
 
-                const type = this.schemaAst.getTLBType(typeName);
+                const type = this.typeMap.get(typeName);
                 if (!type) {
                     return {
                         success: false,
@@ -1705,7 +1717,7 @@ export class TLBRuntime<T = ParsedCell> {
                     value[fieldName] = ref;
                 } else {
                     // ^TypeName - deserialize the type from the reference
-                    const type = this.schemaAst.getTLBType(refTypeName);
+                    const type = this.typeMap.get(refTypeName);
                     if (type) {
                         const refSlice = ref.beginParse(true);
                         const result = this.deserializeType(type, refSlice, [], variables);
@@ -1807,7 +1819,7 @@ export class TLBRuntime<T = ParsedCell> {
                 }
 
                 // For other simple types, try to find the type and deserialize it
-                const type = this.schemaAst.getTLBType(typeName);
+                const type = this.typeMap.get(typeName);
                 if (type) {
                     const result = this.deserializeType(type, slice, [], variables);
                     if (result.success) {
@@ -1910,7 +1922,7 @@ export class TLBRuntime<T = ParsedCell> {
                     } else if (subfield.fieldType.kind === 'TLBNamedType') {
                         // ^SomeType - deserialize the type from the reference
                         const refSlice = ref.beginParse(true);
-                        const type = this.schemaAst.getTLBType(subfield.fieldType.name);
+                        const type = this.typeMap.get(subfield.fieldType.name);
                         if (type) {
                             // Seed nested variables from type arguments where possible
                             let initialSeed: Map<string, number> | undefined;
@@ -3073,7 +3085,7 @@ export class TLBRuntime<T = ParsedCell> {
                     return slice.loadBits(bits);
                 }
 
-                const type = this.schemaAst.getTLBType(fieldType.name);
+                const type = this.typeMap.get(fieldType.name);
                 if (!type) {
                     throw new TLBDataError(`Type ${fieldType.name} not found in TL-B schema`);
                 }
@@ -4060,7 +4072,7 @@ export class TLBRuntime<T = ParsedCell> {
                 if (typeName === 'bits') continue;
 
                 if (fieldValue !== undefined) {
-                    const type = this.schemaAst.getTLBType(typeName);
+                    const type = this.typeMap.get(typeName);
                     if (!type) {
                         throw new TLBDataError(`Type ${typeName} not found for field ${fieldName}`);
                     }
@@ -4329,7 +4341,7 @@ export class TLBRuntime<T = ParsedCell> {
                 }
 
                 // For other simple types, try to find the type and serialize it
-                const type = this.schemaAst.getTLBType(typeName);
+                const type = this.typeMap.get(typeName);
                 if (type && fieldValue !== undefined) {
                     this.serializeType(type, fieldValue, builder);
                 }
@@ -4352,7 +4364,7 @@ export class TLBRuntime<T = ParsedCell> {
                         }
                     } else {
                         // ^TypeName - serialize the type to a nested cell
-                        const type = this.schemaAst.getTLBType(refTypeName);
+                        const type = this.typeMap.get(refTypeName);
                         if (type) {
                             const nestedBuilder = beginCell();
                             this.serializeType(type, fieldValue, nestedBuilder);
@@ -4625,7 +4637,7 @@ export class TLBRuntime<T = ParsedCell> {
                     break;
                 }
 
-                const type = this.schemaAst.getTLBType(fieldType.name);
+                const type = this.typeMap.get(fieldType.name);
                 if (!type) {
                     throw new TLBDataError(`Type ${fieldType.name} not found in TL-B schema`);
                 }
@@ -4948,7 +4960,5 @@ export function runtimeBy<T = TypedCell>(schema: string | Cell): TLBRuntime<T> {
 
 /** @deprecated Use runtimeBy instead. */
 export function parseTLB<T = ParsedCell>(schema: string): TLBRuntime<T> {
-    const result = TLBRuntime.from<T>(schema);
-    if (!result.success) throw new TLBSchemaError('Bad Schema', result.error);
-    return result.value;
+    return TLBRuntime.parseTLB<T>(schema);
 }
