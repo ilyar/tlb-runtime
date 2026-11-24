@@ -26,6 +26,12 @@ function check(schema: string, cell: Cell, rootType = 'Example') {
 }
 
 describe('TON documentation examples', () => {
+    it('keeps a referenced anonymous type inside Maybe and the field after it', () => {
+        const schema = TLBStd.Maybe + '_ option:(Maybe ^[ x:uint8 ]) tail:uint8 = Example;';
+        const cell = beginCell().storeBit(1).storeRef(beginCell().storeUint(42, 8).endCell()).storeUint(9, 8).endCell();
+        expect(check(schema, cell)).toMatchObject({ option: { kind: 'Maybe_just', value: { x: 42 } }, tail: 9 });
+    });
+
     it('Both stores its two values in order', () => {
         const s = 'pair$_ {X:Type} {Y:Type} first:X second:Y = Both X Y; _ pair:(Both uint5 int8) = Example;';
         expect(check(s, beginCell().storeUint(21, 5).storeInt(-7, 8).endCell()).pair).toEqual({

@@ -1,4 +1,4 @@
-import { ast, Declaration } from '@ton-community/tlb-parser';
+import { ast, Declaration, FieldAnonymousDef, FieldAnonExpr, walk } from '@ton-community/tlb-parser';
 
 import { Result } from '../Result';
 import { TLBSchemaError } from '../errors';
@@ -15,7 +15,7 @@ import { constructorTag } from './constructorTag';
 
 interface FieldDef {
     constructor: { name: string };
-    name?: string;
+    name?: string | null;
     type?: string;
     expr?: unknown;
     locations?: Partial<SrcLocationProp>;
@@ -106,6 +106,7 @@ export class Schema {
 
             // Recalculate sizes to handle mutual recursion
             schema.recalculateSizes();
+            schema.getTLBTypes();
 
             return {
                 success: true,
@@ -318,28 +319,13 @@ export class Schema {
      * different constructors of the same type can have different anonymous fields.
      */
     registerAnonymousTypes(declaration: Declaration): void {
-        if (declaration.fields) {
-            this.registerAnonymousTypesFromFields(declaration.fields);
-        }
-    }
-
-    /**
-     * Recursively register anonymous types from fields in the first pass.
-     * This ensures they get sequential type indices in declaration order.
-     */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    private registerAnonymousTypesFromFields(fields: any[]): void {
-        for (const field of fields) {
-            if (field.constructor?.name === 'FieldAnonymousDef' && field.fields) {
-                // Create stub for this anonymous type
+        for (const field of declaration.fields) {
+            for (const node of walk(field)) {
+                if (!(node instanceof FieldAnonymousDef || node instanceof FieldAnonExpr)) continue;
                 const typeIdx = this.types.length;
-                const typeName = `TYPE_${typeIdx}`;
-                const type = Type.create(typeName, typeIdx, false, 0, false, true);
+                const type = Type.create(`TYPE_${typeIdx}`, typeIdx, false, 0, false, true);
                 type.isAnon = true;
                 this.types.push(type);
-
-                // Recursively register nested anonymous types
-                this.registerAnonymousTypesFromFields(field.fields);
             }
         }
     }
@@ -1015,6 +1001,12 @@ export class Schema {
             return new TypeExpr(TypeExprType.Type);
         }
 
+        if (expr instanceof FieldAnonExpr) {
+            const type = this.createAnonymousType(expr.fields, SrcLocation.from(expr.locations), params);
+            const applied = new TypeExpr(TypeExprType.Apply, type);
+            return this.registerConstExpr(expr.isRef ? new TypeExpr(TypeExprType.Ref, null, [applied]) : applied);
+        }
+
         // Handle AST nodes from tlb-parser
         if (expr.constructor.name === 'NumberExpr' || ('num' in expr && !('kind' in expr))) {
             return this.registerConstExpr(new TypeExpr(TypeExprType.IntConst, null, [], expr.num, true, true));
@@ -1658,7 +1650,8 @@ export class Schema {
                                 implicit: field.implicit,
                             });
                         } catch (error) {
-                            void error;
+                            const reason = error instanceof Error ? error.message : String(error);
+                            throw new TLBSchemaError(`Invalid field ${fieldName ?? '_'} in ${type.name}: ${reason}`);
                         }
                     }
                 }

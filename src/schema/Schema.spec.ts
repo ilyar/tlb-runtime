@@ -1,10 +1,20 @@
 import { groupCorpusFlat } from '../tesdata';
 import { UnpackedSize, packSize, Schema, unpackSize, PackedSize } from '.';
+import { TLBSchemaError } from '../errors';
 import { unwrap } from '../Result';
 import { TypeInteger } from './Type';
 import { loadData } from '../../testdata';
 
 describe('Schema', () => {
+    it('reports a field with a missing type argument instead of skipping its wire position', () => {
+        const result = Schema.from('_ first:uint8 broken:uint last:uint8 = Example;');
+        expect(result.success).toBe(false);
+        if (!result.success) {
+            expect(result.error).toBeInstanceOf(TLBSchemaError);
+            expect(result.error.message).toContain('Invalid field broken in Example: uint type requires an argument');
+        }
+    });
+
     describe.each([
         ['Any', { maxBits: 2047, maxRefs: 7, minBits: 0, minRefs: 0 }, 0x7ff07n],
         ['OneRef', { maxBits: 0, maxRefs: 1, minBits: 0, minRefs: 1 }, 0x100000001n],
@@ -48,7 +58,7 @@ describe('Schema', () => {
             // Note: typesNum/userTypesNum may differ from reference due to anonymous type handling
             // Reference implementation deduplicates identical anonymous types, which we don't do yet
             ['block', 1762, 213],
-            ['schemes', 1862, 313],
+            ['schemes', 1865, 316],
         ])('%s', (name: string, typesNum: number, userTypesNum: number) => {
             const actual = unwrap(Schema.from(loadData(`${name}.tlb`)));
             // Compare first line (type counts) and verify parsing succeeded
