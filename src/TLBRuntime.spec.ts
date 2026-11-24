@@ -42,6 +42,16 @@ describe('TLBRuntime', () => {
         expect(runtime.encodeCell(value).toBoc()).toEqual(cell.toBoc());
     });
 
+    it('prefers a matching tag over a valid default root only when tag lookup is requested', () => {
+        const runtime = runtimeBy('tagged#ab = Tagged; _ value:uint8 = Default;');
+        const cell = beginCell().storeUint(0xab, 8).endCell();
+        expect(unwrap(runtime.deserialize(cell, true))).toEqual({ kind: 'Tagged' });
+        expect(unwrap(runtime.deserialize(cell))).toEqual({ kind: 'Default', value: 0xab });
+
+        const untagged = beginCell().storeUint(0xac, 8).endCell();
+        expect(unwrap(runtime.deserialize(untagged, true))).toEqual({ kind: 'Default', value: 0xac });
+    });
+
     it('finds the root type by a 60-bit tag when the last type does not match', () => {
         const runtime = runtimeBy('long#800000000000001 x:uint7 = Long; other#ff x:uint7 = Other;');
         expect(unwrap(runtime.deserialize(longTagBoc, true))).toEqual({ kind: 'Long', x: 3 });

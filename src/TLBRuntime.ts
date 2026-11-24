@@ -279,6 +279,13 @@ export class TLBRuntime<T = ParsedCell> {
             data = result.value;
         }
         const slice = data.asSlice();
+        if (findByTag) {
+            const find = this.findByTag(slice);
+            if (find) {
+                return this.deserializeConstructor(find.type, find.item, slice);
+            }
+        }
+
         if (this.lastTypeName) {
             try {
                 const result = this.deserializeByTypeName(this.lastTypeName, slice.clone());
@@ -291,13 +298,6 @@ export class TLBRuntime<T = ParsedCell> {
                 } else {
                     throw new TLBDataError('Failed to deserialize');
                 }
-            }
-        }
-
-        if (findByTag) {
-            const find = this.findByTag(slice);
-            if (find) {
-                return this.deserializeConstructor(find.type, find.item, slice);
             }
         }
 
