@@ -3643,10 +3643,16 @@ export class TLBRuntime<T = ParsedCell> {
                     continue;
                 }
                 const name = field.name || `anon${anonymousIndex++}`;
-                if (data[name] !== undefined) {
-                    const fieldType = this.bindTypeParameters(field.fieldType, typeParams);
-                    this.serializeField({ ...field, fieldType }, data[name], target, variables);
+                let fieldType = this.bindTypeParameters(field.fieldType, typeParams);
+                while (
+                    fieldType.kind === 'TLBCondType' &&
+                    new MathExprEvaluator(variables).evaluate(fieldType.condition)
+                ) {
+                    fieldType = fieldType.value;
                 }
+                if (fieldType.kind === 'TLBCondType') continue;
+                if (data[name] === undefined) throw new TLBDataError(`Missing required field ${name} in ${type.name}`);
+                this.serializeField({ ...field, fieldType }, data[name], target, variables);
             }
         };
         writeFields(constructor.fields, builder);

@@ -3,7 +3,7 @@ import { Cell, beginCell, Address, ExternalAddress, Dictionary, Builder } from '
 import { decodeCell, encodeCell, replacer } from './parser';
 import { groupCorpusFlat, TLBStd, TLBLib } from './tesdata';
 import { TLBRuntime, runtimeBy, TLBRuntimeError, TypedCell, TypeCell } from './TLBRuntime';
-import { TLBSchemaError } from './errors';
+import { TLBDataError, TLBSchemaError } from './errors';
 import { Failure, unwrap } from './Result';
 
 function corpusValue(data: unknown): unknown {
@@ -19,6 +19,17 @@ function corpusValue(data: unknown): unknown {
 }
 
 describe('TLBRuntime', () => {
+    it('rejects missing wire fields and skips inactive conditional fields', () => {
+        const plain = runtimeBy('_ x:uint32 y:uint8 = Foo;');
+        expect(() => plain.encodeCell({ kind: 'Foo', y: 7 })).toThrow(TLBDataError);
+        const conditional = runtimeBy('_ flag:uint1 x:flag?uint8 = Foo;');
+        expect(() => conditional.encodeCell({ kind: 'Foo', flag: 1 })).toThrow('Missing required field x');
+        expect(conditional.encodeCell({ kind: 'Foo', flag: 0 }).equals(beginCell().storeBit(0).endCell())).toBe(true);
+        const maybe = runtimeBy(TLBStd.Maybe + '_ x:(Maybe uint8) = Foo;');
+        expect(() => maybe.encodeCell({ kind: 'Foo' })).toThrow('Missing required field x');
+        expect(maybe.encodeCell({ kind: 'Foo', x: null }).equals(beginCell().storeBit(0).endCell())).toBe(true);
+    });
+
     const longTagBoc = 'te6cckEBAQEACwAAEYAAAAAAAAAQcJqaShY=';
     it.each([
         ['long#800000000000001 x:uint7 = Long;', 'Long'],
