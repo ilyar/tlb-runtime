@@ -42,6 +42,15 @@ describe('TLBRuntime', () => {
         expect(runtime.encodeCell(value).toBoc()).toEqual(cell.toBoc());
     });
 
+    it.each([
+        ['runtimeBy', runtimeBy],
+        ['parseTLB', TLBRuntime.parseTLB],
+    ] as const)('%s uses the result type of the last declaration as the default root', (_, compile) => {
+        const runtime = compile('tagged_off$0 = Tagged; _ value:uint1 = Fallback; tagged_on$1 = Tagged;');
+        const cell = beginCell().storeBit(1).endCell();
+        expect(unwrap(runtime.deserialize(cell))).toEqual({ kind: 'Tagged_tagged_on' });
+    });
+
     it('prefers a matching tag over a valid default root only when tag lookup is requested', () => {
         const runtime = runtimeBy('tagged#ab = Tagged; _ value:uint8 = Default;');
         const cell = beginCell().storeUint(0xab, 8).endCell();

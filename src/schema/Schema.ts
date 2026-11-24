@@ -31,14 +31,14 @@ export class Schema {
     private code: string = '';
     private tlbTypesCache?: ReadonlyMap<string, import('../types').TLBType>;
 
-    constructor() {
+    constructor(readonly lastTypeName?: string) {
         this.defineBuiltins();
     }
 
     static from(code: string): Result<Schema> {
         try {
             const tree = ast(code);
-            const schema = new Schema();
+            const schema = new Schema(tree.declarations.at(-1)?.combinator.name);
             // Store the original code for TLBType conversion
             schema.code = code;
 
@@ -1487,7 +1487,6 @@ export class Schema {
      */
     getTLBTypeNames(): string[] {
         // Return user type names in the order they were declared (from userTypes array)
-        // This ensures lastTypeName logic works correctly
         return this.userTypes.map((t) => t.name);
     }
 

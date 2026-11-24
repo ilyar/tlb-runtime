@@ -149,17 +149,21 @@ export class TLBRuntime<T = ParsedCell> {
     private readonly tagMap = new Map<string, { type: TLBType; item: TLBConstructor }>();
     private maxSizeTag = 0;
     private readonly typeMap: ReadonlyMap<string, TLBType>;
-    private readonly lastTypeName: string;
+    private readonly lastTypeName?: string;
     private readonly resultArgs = new WeakMap<object, (number | undefined)[]>();
     private recursionDepth = 0;
     private readonly MAX_RECURSION_DEPTH = 100; // Limit to prevent infinite recursion
     private constructor(
         readonly schema: string,
         private readonly config: Partial<TLBRuntimeConfig> = {},
-        private readonly compileSchema = (code: string) => unwrap(Schema.from(code)).getTLBTypes(),
+        private readonly compileSchema = (code: string) => {
+            const schema = unwrap(Schema.from(code));
+            return { types: schema.getTLBTypes(), lastTypeName: schema.lastTypeName };
+        },
     ) {
-        this.typeMap = compileSchema(schema);
-        this.lastTypeName = Array.from(this.typeMap.keys()).at(-1) ?? '';
+        const compiled = compileSchema(schema);
+        this.typeMap = compiled.types;
+        this.lastTypeName = compiled.lastTypeName;
         config.autoText = config.autoText ?? true;
         for (const type of this.typeMap.values()) {
             for (const item of type.constructors) {
@@ -188,7 +192,7 @@ export class TLBRuntime<T = ParsedCell> {
     private static create<T>(
         schema: string,
         config: Partial<TLBRuntimeConfig>,
-        compileSchema?: (code: string) => ReadonlyMap<string, TLBType>,
+        compileSchema?: (code: string) => { types: ReadonlyMap<string, TLBType>; lastTypeName: string | undefined },
     ): Result<TLBRuntime<T>> {
         try {
             return {

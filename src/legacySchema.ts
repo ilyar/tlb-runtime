@@ -1,3 +1,4 @@
+import { ast } from '@ton-community/tlb-parser';
 import * as legacy from '@ton-community/tlb-codegen';
 
 import type { TLBBinaryOp, TLBUnaryOp, TLBField, TLBFieldType, TLBMathExpr, TLBType, TLBVariable } from './types';
@@ -63,9 +64,10 @@ function variable(v: legacy.TLBVariable): TLBVariable {
     return { ...v, deriveExpr: v.deriveExpr && expression(v.deriveExpr) };
 }
 
-export function compileLegacySchema(schema: string): ReadonlyMap<string, TLBType> {
+export function compileLegacySchema(schema: string) {
+    const tree = ast(schema);
     const types = new Map<string, TLBType>();
-    for (const [name, type] of legacy.getTLBCode(schema).types) {
+    for (const [name, type] of legacy.getTLBCodeByAST(tree, schema).types) {
         const constructors = type.constructors.map((constructor) => {
             const variables = constructor.variables.map(variable);
             const parameters = constructor.parameters.map((p) => ({
@@ -85,5 +87,5 @@ export function compileLegacySchema(schema: string): ReadonlyMap<string, TLBType
         });
         types.set(name, { name, constructors });
     }
-    return types;
+    return { types, lastTypeName: tree.declarations.at(-1)?.combinator.name };
 }

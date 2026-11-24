@@ -1394,17 +1394,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ton-community/tlb-parser@https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253":
-  version: 0.2.0
-  resolution: "@ton-community/tlb-parser@https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253"
-  dependencies:
-    ohm-js: "npm:^v17.3.0"
-  bin:
-    tlb-parser: ./dist/cli.js
-  checksum: 10c0/b9d4251aea55ca33dbcf05047c807827790332e90ff2bedf2aaeaffd4e967453af9dc545d4ccf46eaf6c72fb40eb3c469c2d4a2103b564939aad74a1a86eb4b1
-  languageName: node
-  linkType: hard
-
 "@ton-community/tlb-parser@npm:^0.1.5":
   version: 0.1.5
   resolution: "@ton-community/tlb-parser@npm:0.1.5"
@@ -1422,7 +1411,7 @@ __metadata:
   dependencies:
     "@changesets/cli": "npm:^2.29.8"
     "@ton-community/tlb-codegen": "npm:2.0.0-beta.3"
-    "@ton-community/tlb-parser": "https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253"
+    "@ton-community/tlb-parser": "npm:^0.1.5"
     "@ton/core": "npm:^0.63.0"
     "@ton/crypto": "npm:^3.3.0"
     "@ton/toolchain": "github:the-ton-tech/toolchain#v1"
@@ -1432,6 +1421,7 @@ __metadata:
     jest: "npm:^30.2.0"
     ohm-js: "npm:^17.3.0"
     prettier: "npm:^3.5.3"
+    tlb-parser-source: "https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253"
     ts-jest: "npm:^29.4.6"
     ts-node: "npm:^10.9.2"
     typescript: "npm:^5.9.3"
@@ -6088,6 +6078,17 @@ __metadata:
     fdir: "npm:^6.5.0"
     picomatch: "npm:^4.0.4"
   checksum: 10c0/7f7bb0f197c88bc4b20c231e0deca4240ca3bf313a88f5a7fee93a872b84966a4d50220947c0455ad07a60b3b360961c5b7fd979222aeb716a9f99b412002e4c
+  languageName: node
+  linkType: hard
+
+"tlb-parser-source@https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253":
+  version: 0.2.0
+  resolution: "tlb-parser-source@https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253"
+  dependencies:
+    ohm-js: "npm:^v17.3.0"
+  bin:
+    tlb-parser: ./dist/cli.js
+  checksum: 10c0/d9353e71aa54b09a4379bcbf617475db3e1cb39c30ac54295eb558941ad420bdfec84c29fab6cfb6341b01cb38cd65c6a6c802a6c49d0aeec2768cff46081257
   languageName: node
   linkType: hard
 
