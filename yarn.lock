@@ -1394,14 +1394,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ton-community/tlb-parser@https://gist.github.com/ilyar/baac357ceafa1112161418d7df5247b9/raw/3d7cf9e6cfe85e7d0321319f372dc2d12d11d4ce/ton-community-tlb-parser-0.2.0.tgz":
+"@ton-community/tlb-parser@https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253":
   version: 0.2.0
-  resolution: "@ton-community/tlb-parser@https://gist.github.com/ilyar/baac357ceafa1112161418d7df5247b9/raw/3d7cf9e6cfe85e7d0321319f372dc2d12d11d4ce/ton-community-tlb-parser-0.2.0.tgz"
+  resolution: "@ton-community/tlb-parser@https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253"
   dependencies:
-    ohm-js: "npm:^v17.2.1"
+    ohm-js: "npm:^v17.3.0"
   bin:
     tlb-parser: ./dist/cli.js
-  checksum: 10c0/d4eb736185704737554cf44cf534b377749eaac06a2e3a9f1181584a0c8ee8882707208ea9ecf6db0fcc4fbb707ded055628174693544697eb4f770b0a52775f
+  checksum: 10c0/b9d4251aea55ca33dbcf05047c807827790332e90ff2bedf2aaeaffd4e967453af9dc545d4ccf46eaf6c72fb40eb3c469c2d4a2103b564939aad74a1a86eb4b1
   languageName: node
   linkType: hard
 
@@ -1422,7 +1422,7 @@ __metadata:
   dependencies:
     "@changesets/cli": "npm:^2.29.8"
     "@ton-community/tlb-codegen": "npm:2.0.0-beta.3"
-    "@ton-community/tlb-parser": "https://gist.github.com/ilyar/baac357ceafa1112161418d7df5247b9/raw/3d7cf9e6cfe85e7d0321319f372dc2d12d11d4ce/ton-community-tlb-parser-0.2.0.tgz"
+    "@ton-community/tlb-parser": "https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253"
     "@ton/core": "npm:^0.63.0"
     "@ton/crypto": "npm:^3.3.0"
     "@ton/toolchain": "github:the-ton-tech/toolchain#v1"
@@ -1430,6 +1430,7 @@ __metadata:
     "@types/node": "npm:^24.10.1"
     eslint: "npm:^9.39.2"
     jest: "npm:^30.2.0"
+    ohm-js: "npm:^17.3.0"
     prettier: "npm:^3.5.3"
     ts-jest: "npm:^29.4.6"
     ts-node: "npm:^10.9.2"
@@ -5138,7 +5139,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ohm-js@npm:^v17.2.1":
+"ohm-js@npm:^17.3.0, ohm-js@npm:^v17.3.0":
   version: 17.5.0
   resolution: "ohm-js@npm:17.5.0"
   checksum: 10c0/5bee87a84084a68f636f575ae9a6460642a2584671751e717083f00efea900c402e5583056a0559eaec070cc28874a9ae9f69aa42020974822285bd1bdb60833

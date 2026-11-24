@@ -89,3 +89,6 @@ pids
 # Yarn
 yarn-error.log
 .yarn/
+
+# Compiled official TL-B parser
+/build/tlb-parser/

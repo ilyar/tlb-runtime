@@ -5,19 +5,21 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist/**/*"
+    "dist/**/*",
+    "build/tlb-parser"
   ],
   "prettier": "@ton/toolchain/prettier",
   "scripts": {
-    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "clean": "node -e \"for (const dir of ['dist', 'build/tlb-parser']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
     "qa": "yarn build && yarn lint && yarn test --coverage",
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build:parser": "tsc --project node_modules/@ton-community/tlb-parser/tsconfig.build.json --outDir build/tlb-parser && node -e \"require('node:fs').copyFileSync('node_modules/@ton-community/tlb-parser/LICENSE', 'build/tlb-parser/LICENSE')\"",
+    "build": "npm run build:parser && tsc",
+    "dev": "npm run build:parser && tsc --watch",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --max-warnings 0 --fix",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "test": "npm run build:parser && jest",
+    "test:watch": "npm run build:parser && jest --watch",
+    "test:coverage": "npm run build:parser && jest --coverage",
     "prepublishOnly": "npm run clean && npm run build",
     "changeset": "changeset",
     "version-packages": "changeset version",
@@ -43,6 +45,7 @@
   "homepage": "https://github.com/ton-community/tlb-runtime#readme",
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
+    "@ton-community/tlb-parser": "https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253",
     "@ton/toolchain": "github:the-ton-tech/toolchain#v1",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
@@ -61,12 +64,9 @@
   },
   "dependencies": {
     "@ton-community/tlb-codegen": "2.0.0-beta.3",
-    "@ton-community/tlb-parser": "https://gist.github.com/ilyar/baac357ceafa1112161418d7df5247b9/raw/3d7cf9e6cfe85e7d0321319f372dc2d12d11d4ce/ton-community-tlb-parser-0.2.0.tgz",
     "@ton/core": "^0.63.0",
-    "@ton/crypto": "^3.3.0"
+    "@ton/crypto": "^3.3.0",
+    "ohm-js": "^17.3.0"
   },
-  "bundleDependencies": [
-    "@ton-community/tlb-parser"
-  ],
   "packageManager": "yarn@4.17.0+sha512.c2957de2f9025ab14d63b24d0d8be1f1655810e22c341042c27f7ecd017b180ec12db73d69ac366d71b304ef9f069349ce462de96f04f8f1da317f4f762c95ae"
 }

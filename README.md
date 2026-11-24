@@ -117,3 +117,7 @@ git push origin refs/tags/v1.0.0-alpha.5
 ```
 
 The [publish workflow](.github/workflows/deploy.yml) checks the tag against the package version, builds the package, publishes it to npm with the `latest` dist-tag, and creates a GitHub Release. It uses npm trusted publishing from the `deploy` environment.
+
+## Parser source
+
+The build compiles the official [TL-B parser v0.2.0](https://github.com/ton-community/tlb-parser/tree/a1d74c8e71b6e983547306a11733d48d410aa253) with its upstream TypeScript configuration. The runtime package includes the compiled parser, its type declarations and its MIT license in `build/tlb-parser`. The deprecated API continues to use the parser supplied by `tlb-codegen`.

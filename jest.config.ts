@@ -6,6 +6,7 @@ const config: Config = {
     testMatch: ['**/*.spec.ts'],
     preset: 'ts-jest',
     silent: false,
+    coveragePathIgnorePatterns: ['/node_modules/', '/build/tlb-parser/'],
     coverageThreshold: {
         global: {
             statements: 55,
