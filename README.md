@@ -106,17 +106,12 @@ yarn lint:fix
 
 ## Release
 
-1. Bump `version` in `package.json` and merge the PR into `main`. The [release workflow](.github/workflows/release.yaml) builds the npm tarball and runs a publish dry run on the PR.
-2. Tag the **merged version-bump commit** and push just that tag. For example, for `1.0.0-alpha.4`:
+Merge the version change into `master`, then tag the merged commit with `v` followed by the version from `package.json`.
 
-    ```bash
-    git fetch origin main
-    git tag v1.0.0-alpha.4 <merged-commit-sha>
-    git push origin refs/tags/v1.0.0-alpha.4
-    ```
+```bash
+git fetch origin master
+git tag v1.0.0-alpha.5 <merged-commit-sha>
+git push origin refs/tags/v1.0.0-alpha.5
+```
 
-3. Follow the [Release workflow run](https://github.com/ton-community/tlb-runtime/actions/workflows/release.yaml). It checks that the tag is exactly `v` plus the package version and the commit is on `main`, builds the package, runs the signed-integer regression test, publishes to npm, then creates a GitHub Release with generated notes.
-
-Stable versions publish to `latest`; numbered prereleases such as `1.0.0-alpha.4` publish to `alpha` and are marked as prereleases on GitHub. If npm's `latest` already points to an earlier prerelease in that same series (e.g. `1.0.0-alpha.3`), it advances too.
-
-**npm access:** The workflow uses [trusted publishing](https://docs.npmjs.com/trusted-publishers/) for `ton-community/tlb-runtime`, workflow `release.yaml`, without a GitHub environment. Enable `npm publish` and `npm dist-tag` in the package's Trusted Publisher settings. If authorization fails, fix the npm settings and choose **Re-run failed jobs** in Actions. This also lets you retry the final step after a successful npm publish without publishing the version twice.
+The [publish workflow](.github/workflows/deploy.yml) checks the tag against the package version, builds the package, publishes it to npm with the `latest` dist-tag, and creates a GitHub Release. It uses npm trusted publishing from the `deploy` environment.
