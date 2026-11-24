@@ -1,4 +1,4 @@
-import { Address, beginCell, Cell, Dictionary, serializeTupleItem, TupleItem } from '@ton/core';
+import { Address, beginCell, BitString, Cell, Dictionary, serializeTupleItem, TupleItem } from '@ton/core';
 
 import { loadData } from '../testdata';
 import { TLBRuntime } from './TLBRuntime';
@@ -204,6 +204,33 @@ describe('TON documentation examples', () => {
     const dns =
         TLBLib.MsgAddress +
         definitions(/^(proto_|cap_list_|cap_is_wallet|dns_(next_resolver|storage_address|smc_address|adnl_address))/);
+    it('preserves the DNS ADNL sample address as 256 raw bits with autoText enabled', () => {
+        const runtime = unwrap(TLBRuntime.from(dns, { autoText: true }));
+        const cell = Cell.fromBase64('te6cckEBAQEAKAAAS60BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHsBpCogujAahw==');
+        const data = runtime.decodeCell(cell, { rootType: 'DNSRecord' });
+        expect(data.adnl_addr).toBeInstanceOf(BitString);
+        expect((data.adnl_addr as BitString).equals(beginCell().storeUint(123, 256).endCell().bits)).toBe(true);
+        expect(runtime.encodeCell(data).equals(cell)).toBe(true);
+    });
+
+    it.each([
+        ['ASCII', Buffer.from('Hello'), 'Hello'],
+        ['Unicode and whitespace', Buffer.from('Привет 👋\t\r\n'), 'Привет 👋\t\r\n'],
+        ['invalid UTF-8', Buffer.from([0xc0, 0xaf]), null],
+        ['control character', Buffer.from([0x61, 0x7f]), null],
+    ] as const)('round-trips %s in an unaligned length-prefixed field', (_, bytes, text) => {
+        const runtime = unwrap(TLBRuntime.from('_ len:(## 7) text:(bits (len * 8)) = Message;'));
+        const cell = beginCell().storeUint(bytes.length, 7).storeBuffer(bytes).endCell();
+        const data = runtime.decodeCell(cell, { rootType: 'Message' });
+        if (text === null) {
+            expect(data.text).toBeInstanceOf(BitString);
+            expect((data.text as BitString).equals(beginCell().storeBuffer(bytes).endCell().bits)).toBe(true);
+        } else {
+            expect(data.text).toBe(text);
+        }
+        expect(runtime.encodeCell(data).equals(cell)).toBe(true);
+    });
+
     const records = [
         ['next resolver', beginCell().storeUint(0xba93, 16).storeAddress(address).endCell()],
         ['storage', beginCell().storeUint(0x7473, 16).storeUint(123, 256).endCell()],

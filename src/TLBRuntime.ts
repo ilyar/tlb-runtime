@@ -14,7 +14,7 @@ import {
 
 import { compileLegacySchema } from './legacySchema';
 import { Schema } from './schema';
-import { bitsToString, normalizeBitString, stringToBits, toCell } from './common';
+import { decodeBits, stringToBits, toCell } from './common';
 import { MathExprEvaluator } from './MathExprEvaluator';
 import { Result, unwrap } from './Result';
 import { TLBRuntimeError, TLBSchemaError, TLBDataError } from './errors';
@@ -1219,14 +1219,7 @@ export class TLBRuntime<T = ParsedCell> {
                 const fieldName = match[1];
                 const bits = parseInt(match[2], 10);
                 if (slice.remainingBits >= bits) {
-                    const raw = slice.loadBits(bits);
-                    if (this.config.autoText && bits % 8 === 0) {
-                        value[fieldName] = bitsToString(raw);
-                    } else if (bits === 1) {
-                        value[fieldName] = raw.at(0);
-                    } else {
-                        value[fieldName] = normalizeBitString(raw);
-                    }
+                    value[fieldName] = decodeBits(slice.loadBits(bits), this.config.autoText);
                 } else {
                     return {
                         success: false,
@@ -1313,14 +1306,7 @@ export class TLBRuntime<T = ParsedCell> {
                 }
 
                 if (slice.remainingBits >= bits) {
-                    const raw = slice.loadBits(bits);
-                    if (this.config.autoText && bits % 8 === 0) {
-                        value[fieldName] = bitsToString(raw);
-                    } else if (bits === 1) {
-                        value[fieldName] = raw.at(0);
-                    } else {
-                        value[fieldName] = normalizeBitString(raw);
-                    }
+                    value[fieldName] = decodeBits(slice.loadBits(bits), this.config.autoText);
                 } else {
                     return {
                         success: false,
@@ -2786,14 +2772,7 @@ export class TLBRuntime<T = ParsedCell> {
 
             case 'TLBBitsType': {
                 const bits = evaluator.evaluate(fieldType.bits);
-                const raw = slice.loadBits(bits);
-                if (this.config.autoText && bits % 8 === 0) {
-                    return bitsToString(raw);
-                }
-                if (bits === 1) {
-                    return raw.at(0);
-                }
-                return normalizeBitString(raw);
+                return decodeBits(slice.loadBits(bits), this.config.autoText);
             }
 
             case 'TLBNamedType': {
