@@ -3550,6 +3550,7 @@ export class TLBRuntime<T = ParsedCell> {
         // Initialize variables map for constraint evaluation and add positional aliases
         const variables = new Map<string, number>();
 
+        const resultArguments: { expression: _TLBMathExpr; expected: number }[] = [];
         const typeParams = new Map<string, TLBFieldType>();
         for (const [i, param] of constructor.parameters.entries()) {
             const arg = args[i];
@@ -3570,12 +3571,15 @@ export class TLBRuntime<T = ParsedCell> {
                 if (!expression) continue;
                 const n = new MathExprEvaluator(callerVariables).evaluate(expression);
                 if (param.argName) variables.set(param.argName, n);
-                if (param.paramExpr?.kind === 'TLBVarExpr') {
-                    const name = param.paramExpr.x;
+                const result = param.paramExpr ?? constructor.resultParameters?.[i];
+                if (result?.kind === 'TLBVarExpr') {
+                    const name = result.x;
                     if (data[name] !== undefined && data[name] !== n) {
                         throw new TLBDataError(`Conflicting parameter ${name}: expected ${n}, got ${data[name]}`);
                     }
                     variables.set(name, n);
+                } else if (result) {
+                    resultArguments.push({ expression: result, expected: n });
                 }
             }
         }
@@ -3627,6 +3631,42 @@ export class TLBRuntime<T = ParsedCell> {
             if (val !== undefined) {
                 variables.set(v.name, val); // Ensure it's in variables map for name-based lookup
                 variables.set(`_${i + 1}`, val); // Add positional alias
+            }
+        }
+
+        // Bind compound result arguments after collecting explicit fields and simple parameters.
+        const evaluator = new MathExprEvaluator(variables);
+        let solvedArgument: boolean;
+        do {
+            solvedArgument = false;
+            for (const { expression, expected } of resultArguments) {
+                const solved = this.solveEquality(
+                    {
+                        kind: 'TLBBinaryOp',
+                        operation: '=',
+                        left: expression,
+                        right: { kind: 'TLBNumberExpr', n: expected },
+                    },
+                    variables,
+                    evaluator,
+                );
+                if (solved) {
+                    if (!Number.isSafeInteger(solved.value) || solved.value < 0) {
+                        throw new TLBDataError(`Invalid natural parameter ${solved.name} for ${type.name}`);
+                    }
+                    variables.set(solved.name, solved.value);
+                    solvedArgument = true;
+                }
+            }
+        } while (solvedArgument);
+        for (const { expression, expected } of resultArguments) {
+            const unknown = [...this.extractVariablesFromExpr(expression)].find((name) => !variables.has(name));
+            if (unknown) throw new TLBDataError(`Cannot infer parameter ${unknown} for ${type.name}`);
+            const actual = evaluator.evaluate(expression);
+            if (actual !== expected) {
+                throw new TLBDataError(
+                    `Conflicting result parameter for ${type.name}: expected ${expected}, got ${actual}`,
+                );
             }
         }
 
@@ -4393,7 +4433,6 @@ export class TLBRuntime<T = ParsedCell> {
         }
 
         // Check constraints
-        const evaluator = new MathExprEvaluator(variables);
         for (const constraint of constructor.constraints) {
             const solved = this.solveEquality(constraint, variables, evaluator);
             if (solved) variables.set(solved.name, solved.value);

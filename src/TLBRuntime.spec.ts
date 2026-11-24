@@ -423,6 +423,20 @@ describe('TLBRuntime', () => {
                 };
                 const boc = encodeCell(schema, data).toBoc().toString('hex');
                 expect(boc).toBe('b5ee9c72410101010003000001a82322a95d');
+                expect(
+                    encodeCell(schema, { ...data, x: { kind: 'ExprType', x: 10n } })
+                        .toBoc()
+                        .toString('hex'),
+                ).toBe(boc);
+                expect(() => encodeCell(schema, { ...data, x: { ...data.x, n: 5 } })).toThrow(TLBDataError);
+            });
+
+            it('infers dependent natural arguments and rejects impossible results', () => {
+                const runtime = runtimeBy('_ {n:#} {m:#} x:(## n) = Pair (n + m) (m + 1); _ x:(Pair 7 4) = Wrapper;');
+                const data = { kind: 'Wrapper', x: { kind: 'Pair', x: 10 } };
+                expect(runtime.encodeCell(data).equals(beginCell().storeUint(10, 4).endCell())).toBe(true);
+                const impossible = runtimeBy('_ {n:#} x:(## n) = Pair (2 * n); _ x:(Pair 5) = Wrapper;');
+                expect(() => impossible.encodeCell(data)).toThrow(TLBDataError);
             });
         });
 
