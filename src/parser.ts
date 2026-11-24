@@ -1,9 +1,9 @@
 import { Address, BitString, Cell, ExternalAddress } from '@ton/core';
 
-import { runtimeBy, TypedCell, ParsedCell, parseTLB } from './TLBRuntime';
+import { runtimeBy, DecodeCellOptions, TypedCell, ParsedCell, parseTLB } from './TLBRuntime';
 
-export function decodeCell(schema: string, data: Cell | string): TypedCell {
-    return runtimeBy(schema).decodeCell(data);
+export function decodeCell(schema: string, data: Cell | string, options?: DecodeCellOptions): TypedCell {
+    return runtimeBy(schema).decodeCell(data, options);
 }
 
 /** @deprecated Use decodeCell instead. */

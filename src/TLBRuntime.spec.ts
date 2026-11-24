@@ -6,7 +6,27 @@ import { TLBRuntime, runtimeBy, TLBRuntimeError, TypedCell, TypeCell } from './T
 import { TLBSchemaError } from './errors';
 import { Failure, unwrap } from './Result';
 
+function corpusValue(data: unknown): unknown {
+    // Compare dictionary entries, including their values. JSON.stringify hides Map contents.
+    return JSON.parse(
+        JSON.stringify(data, (key, value) => {
+            if (value instanceof Dictionary) {
+                return Object.fromEntries(Array.from(value, ([k, v]) => [String(k), v]));
+            }
+            return replacer(key, value);
+        }),
+    );
+}
+
 describe('TLBRuntime', () => {
+    it('rejects a nested parameter that conflicts with its schema argument', () => {
+        const schema = '_ {e:#} bits:(bits e) = Inner e; _ inner:(Inner 5) = Outer;';
+        const bits = beginCell().storeUint(0, 6).endCell().bits;
+        expect(() => encodeCell(schema, { kind: 'Outer', inner: { kind: 'Inner', e: 6, bits } })).toThrow(
+            'Conflicting parameter e: expected 5, got 6',
+        );
+    });
+
     describe('basic', () => {
         it('create runtime for valid schema', () => {
             const schema = '_ x:# = T;';
@@ -265,8 +285,8 @@ describe('TLBRuntime', () => {
         describe('limited nat types (#< and #<=)', () => {
             it('deserializes LessThan with #< 4 and #<= 4', () => {
                 const schema = '_ x:(#< 4) y:(#<= 4) = LessThan;';
-                const boc = 'b5ee9c72410101010003000001fcef6f16cb';
-                expect(decodeCell(schema, boc)).toEqual({ kind: 'LessThan', x: 3, y: 7 });
+                const boc = 'b5ee9c72410101010003000001e44ff09151';
+                expect(decodeCell(schema, boc)).toEqual({ kind: 'LessThan', x: 3, y: 4 });
             });
 
             it('deserializes #< n correctly (ceil(log2(n)) bits)', () => {
@@ -417,14 +437,7 @@ describe('TLBRuntime', () => {
                 });
             });
 
-            // NOTE: This test requires reordering of deserialization and constraint evaluation pipeline.
-            // Issue: Constraints like {n = (~m) + l} depend on field values (l from label), but nested
-            // field arguments (node:(HashmapNode m X)) depend on constraint-computed values (m).
-            // Current architecture: deserializes fields THEN evaluates constraints.
-            // Required: deserialize field-by-field with interleaved constraint evaluation.
-            // This is Phase 3 (US-006) deferred - requires significant refactoring of the deserialization pipeline.
-            // See tasks/prd-type-parameter-substitution.md for details on architectural constraints.
-            it.skip('deserializes HashmapVarKeyUser with parameterized key size', () => {
+            it('deserializes HashmapVarKeyUser with parameterized key size', () => {
                 const schema = `${TLBLib.HashmapE} a$_ {n:#} x:(HashmapE n uint5) = HashmapVarKey n; a$_ x:(HashmapVarKey 5) = HashmapVarKeyUser;`;
                 const boc = 'b5ee9c72410104010011000101c00102016202030003f1a00003f2602ada1261';
                 const result = decodeCell(schema, boc);
@@ -432,10 +445,10 @@ describe('TLBRuntime', () => {
                 const x = result.x as TypedCell;
                 expect(x.kind).toEqual('HashmapVarKey');
                 expect(x.n).toEqual(5);
-                const dict = x.x as Dictionary<bigint, number>;
+                const dict = x.x as Dictionary<number, number>;
                 expect(dict.size).toBe(2);
-                expect(dict.get(3n)).toEqual(6);
-                expect(dict.get(7n)).toEqual(9);
+                expect(dict.get(3)).toEqual(6);
+                expect(dict.get(7)).toEqual(9);
             });
 
             it('deserializes types with tagless constructors in reverse order', () => {
@@ -476,16 +489,27 @@ describe('TLBRuntime', () => {
                         }),
                 };
                 const boc = encodeCell(schema, data).toBoc().toString('hex');
-                expect(boc).toBe(
-                    'b5ee9c72410109010022000101c0010101c0020203d86003060101f4040100050001f0010166070100080001b09c53e395',
-                );
+                expect(boc).toBe('b5ee9c72410106010018000101c0010203d86002040101f4030001f0010166050001b085af7d0c');
             });
         });
 
-        describe.skip.each(Object.keys(groupCorpusFlat))('%s', (group) => {
+        describe.each(Object.keys(groupCorpusFlat))('%s', (group) => {
             it.each(groupCorpusFlat[group])('deserialize %s', (schema, expected, boc) => {
-                const actual = decodeCell(schema, Cell.fromHex(boc));
-                expect(JSON.stringify(actual, replacer)).toEqual(JSON.stringify(expected, replacer));
+                const argumentsByKind: Record<string, number[]> = {
+                    ParamConstructor_a: [3],
+                    ParamConstructor_b: [4],
+                    ParamDifNames_c: [2],
+                    ParamDifNames_d: [3],
+                    ParamConst_d: [4, 2],
+                    ParamConst_b: [2, 1],
+                    ParamConst_c: [3, 3],
+                    MathExprAsCombArg: [10],
+                };
+                const actual = decodeCell(schema, Cell.fromHex(boc), {
+                    rootType: expected.kind.split('_')[0],
+                    args: argumentsByKind[expected.kind],
+                });
+                expect(corpusValue(actual)).toEqual(corpusValue(expected));
             });
         });
     });
@@ -590,9 +614,9 @@ describe('TLBRuntime', () => {
         describe('limited nat types (#< and #<=)', () => {
             it('serializes LessThan with #< 4 and #<= 4', () => {
                 const schema = '_ x:(#< 4) y:(#<= 4) = LessThan;';
-                const data = { kind: 'LessThan', x: 3, y: 7 };
+                const data = { kind: 'LessThan', x: 3, y: 4 };
                 const boc = encodeCell(schema, data).toBoc().toString('hex');
-                expect(boc).toBe('b5ee9c72410101010003000001fcef6f16cb');
+                expect(boc).toBe('b5ee9c72410101010003000001e44ff09151');
             });
 
             it('serializes #< n correctly (writes ceil(log2(n)) bits)', () => {
@@ -659,7 +683,7 @@ describe('TLBRuntime', () => {
             });
         });
 
-        describe.skip.each(Object.keys(groupCorpusFlat))('serialize %s', (group) => {
+        describe.each(Object.keys(groupCorpusFlat))('serialize %s', (group) => {
             it.each(groupCorpusFlat[group])('serialize %s', (schema, data, expected) => {
                 const actual = encodeCell(schema, data).toBoc().toString('hex');
                 expect(actual).toEqual(expected);
@@ -676,14 +700,12 @@ describe('TLBRuntime', () => {
                     l: 2,
                     label: {
                         kind: 'Unary_unary_succ',
-                        n: 2,
+                        n: 1,
                         x: {
                             kind: 'Unary_unary_succ',
-                            n: 1,
+                            n: 0,
                             x: {
                                 kind: 'Unary_unary_zero',
-                                n: 0,
-                                param0: 0,
                             },
                         },
                     },
@@ -712,10 +734,10 @@ describe('TLBRuntime', () => {
         });
 
         describe('Unary type', () => {
-            it('deserializes unary_zero with computed n = 0', () => {
+            it('deserializes unary_zero without an implicit field', () => {
                 const schema = TLBStd.Unary;
                 const boc = 'b5ee9c7241010101000300000140f6d24034';
-                expect(decodeCell(schema, boc)).toEqual({ kind: 'Unary_unary_zero', n: 0, param0: 0 });
+                expect(decodeCell(schema, boc)).toEqual({ kind: 'Unary_unary_zero' });
             });
 
             it('deserializes unary_succ and computes n = child.n + 1', () => {

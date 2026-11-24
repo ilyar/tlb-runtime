@@ -55,6 +55,7 @@ export interface TLBConstructorTag {
 
 // Field types
 export interface TLBNumberType {
+    upperBound?: TLBMathExpr;
     kind: 'TLBNumberType';
     bits: TLBMathExpr;
     signed: boolean;

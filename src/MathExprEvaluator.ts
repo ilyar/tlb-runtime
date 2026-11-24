@@ -51,6 +51,8 @@ export class MathExprEvaluator {
                     return left % right;
                 case '<<':
                     return left << right;
+                case '.':
+                    return Math.floor(left / 2 ** right) % 2;
                 case '>>':
                     return left >> right;
                 case '&':
@@ -79,22 +81,8 @@ export class MathExprEvaluator {
         if (expr.kind === 'TLBUnaryOp') {
             const operation = expr.operation;
             switch (operation) {
-                case '.': {
-                    const innerExpr = expr.value;
-                    if (innerExpr.kind === 'TLBBinaryOp' && innerExpr.operation === '-') {
-                        const left = this.evaluate(innerExpr.left);
-                        const right = this.evaluate(innerExpr.right);
-                        if (right === 1) {
-                            return MathExprEvaluator.calculateBitsForLessThan(left);
-                        }
-                        return left - right;
-                    }
-                    if (innerExpr.kind === 'TLBNumberExpr') {
-                        return MathExprEvaluator.calculateBitsForLessThanOrEqual(innerExpr.n);
-                    }
-                    return this.evaluate(innerExpr);
-                }
-
+                case '.':
+                    return MathExprEvaluator.calculateBitsForLessThanOrEqual(this.evaluate(expr.value));
                 case '-':
                     return -this.evaluate(expr.value);
                 case '~':

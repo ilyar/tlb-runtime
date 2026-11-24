@@ -11,7 +11,7 @@ import { TypeExpr, TypeExprType } from './TypeExpr';
 import { AdmissibilityInfo } from './AdmissibilityInfo';
 import { BitPrefixCollection } from './BitPrefixCollection';
 import { Field } from './Field';
-import { crc32 } from '../utils';
+import { constructorTag } from './constructorTag';
 
 interface FieldDef {
     constructor: { name: string };
@@ -431,7 +431,21 @@ export class Schema {
                         tagBits = hexStr.length * 4;
                         tag = BigInt(`0x${hexStr}`);
                     }
+                    if (hexStr.length && tagStr.endsWith('_')) {
+                        if (tag === 0n) throw new TLBSchemaError('A partial hex tag needs a terminator bit');
+                        while ((tag & 1n) === 0n) {
+                            tag >>= 1n;
+                            tagBits--;
+                        }
+                        tag >>= 1n;
+                        tagBits--;
+                    }
                 }
+            }
+
+            if (!declaration.constructorDef.tag && constrName !== '_') {
+                tag = BigInt(constructorTag(declaration));
+                tagBits = 32;
             }
 
             // Create constructor
@@ -1023,6 +1037,17 @@ export class Schema {
             }
         }
 
+        if (expr.constructor.name === 'CondExpr') {
+            let condition = this.parseTypeExpr(expr.left, where, params);
+            if (expr.dotExpr != null) {
+                condition = new TypeExpr(TypeExprType.GetBit, null, [condition], Number(expr.dotExpr));
+            }
+            return new TypeExpr(TypeExprType.CondType, null, [
+                condition,
+                this.parseTypeExpr(expr.condExpr, where, params),
+            ]);
+        }
+
         // Handle different expression types
         if ('kind' in expr) {
             switch (expr.kind) {
@@ -1485,18 +1510,23 @@ export class Schema {
         // Parse schema string to extract declarations for each type
         const declarations = schemaStr.split(';').filter((s) => s.trim());
 
-        for (const type of this.userTypes) {
+        // Anonymous groups are implementation details and cannot be inferred as the root.
+        const userTypes = this.userTypes;
+        for (const type of [...userTypes.filter((t) => t.isAnon), ...userTypes.filter((t) => !t.isAnon)]) {
             const tlbType: import('../types').TLBType = {
                 name: type.name,
                 constructors: [],
             };
 
+            const usedDeclarations = new Set<number>();
+            let anonymousCount = 0;
             for (const constructor of type.constructors) {
                 const constructorName = symbolMap.getName(constructor.constrName) || '_';
 
                 // Find declaration string for this constructor
                 let declaration = '';
-                for (const decl of declarations) {
+                for (const [index, decl] of declarations.entries()) {
+                    if (usedDeclarations.has(index)) continue;
                     const trimmed = decl.trim();
                     if (!trimmed) continue;
 
@@ -1516,6 +1546,7 @@ export class Schema {
                         constrPart === constructorName ||
                         (constructorName === '_' && (constrPart === '_' || constrPart === ''))
                     ) {
+                        usedDeclarations.add(index);
                         declaration = trimmed + ';';
                         break;
                     }
@@ -1528,19 +1559,9 @@ export class Schema {
                 const isAnonymous = constructorName === '_' || constructorName === '';
                 const hasExplicitEmptyTag = /[#$]_/.test(declaration.split(/\s/)[0]);
 
-                if (isAnonymous || hasExplicitEmptyTag) {
+                if ((isAnonymous && constructor.tagBits === 0) || hasExplicitEmptyTag) {
                     tagValue = 0;
                     tagBits = 0;
-                } else if (constructor.tagBits === 0) {
-                    let declForCrc32 = '';
-                    if (declaration) {
-                        declForCrc32 = declaration.trim().replace(/;$/, '').replace(/\s+/g, ' ');
-                    } else {
-                        declForCrc32 = constructor.declaration;
-                    }
-                    const crc32Value = crc32(declForCrc32);
-                    tagValue = crc32Value;
-                    tagBits = 32;
                 } else {
                     tagValue = Number(constructor.tag);
                     tagBits = constructor.tagBits;
@@ -1553,21 +1574,10 @@ export class Schema {
                 }
                 const tagBinary = `0x${tagHex}`;
 
-                // Extract parameter names from declaration
-                const paramMatches = Array.from(declaration.matchAll(/\{(\w+):([#\w]+)\}/g));
-                const paramNames: string[] = [];
-                for (const match of paramMatches) {
-                    paramNames.push(match[1]);
-                }
-
-                // Extract from implicit fields
-                for (const field of constructor.fields) {
-                    if (field.implicit && !field.constraint && field.name !== 0) {
-                        const fieldName = symbolMap.getName(field.name);
-                        if (fieldName && !paramNames.includes(fieldName)) {
-                            paramNames.push(fieldName);
-                        }
-                    }
+                const paramNameMap = new Map<number, string>();
+                for (const [index, field] of constructor.fields.entries()) {
+                    const name = field.name && symbolMap.getName(field.name);
+                    if (name) paramNameMap.set(index, name);
                 }
 
                 const parameters: import('../types').TLBParameter[] = [];
@@ -1577,9 +1587,15 @@ export class Schema {
 
                 for (let i = 0; i < constructor.params.length; i++) {
                     const paramExpr = constructor.params[i];
-                    const paramName =
-                        paramNames[i] ||
-                        (paramExpr.tp === TypeExprType.Param ? `_${paramExpr.value + 1}` : `param${i}`);
+                    const vars = new Set<string>();
+                    const collect = (expr: TypeExpr) => {
+                        if (expr.tp === TypeExprType.Param) {
+                            const name = paramNameMap.get(expr.value);
+                            if (name) vars.add(name);
+                        } else expr.args.forEach(collect);
+                    };
+                    collect(paramExpr);
+                    const paramName = vars.size === 1 ? Array.from(vars)[0] : `param${i}`;
                     const isNegated = constructor.paramNegated[i];
                     const isConst = constructor.paramConstVal[i] !== undefined;
                     const constVal = constructor.paramConstVal[i];
@@ -1594,15 +1610,7 @@ export class Schema {
                     };
 
                     try {
-                        const localParamNameMap = new Map<number, string>();
-                        for (let j = 0; j < constructor.params.length; j++) {
-                            const pExpr = constructor.params[j];
-                            if (pExpr.tp === TypeExprType.Param) {
-                                const pName = paramNames[j] || `_${pExpr.value + 1}`;
-                                localParamNameMap.set(pExpr.value, pName);
-                            }
-                        }
-                        const mathExpr = this.typeExprToTLBMathExpr(paramExpr, localParamNameMap);
+                        const mathExpr = this.typeExprToTLBMathExpr(paramExpr, paramNameMap);
                         param.variable.deriveExpr = mathExpr;
                         param.paramExpr = mathExpr;
                     } catch {
@@ -1626,10 +1634,10 @@ export class Schema {
                 }
 
                 // Build parameter name map
-                const paramNameMap = new Map<number, string>();
-                for (const f of constructor.fields) {
+                for (const [index, f] of constructor.fields.entries()) {
                     if (f.name !== 0) {
                         const fName = symbolMap.getName(f.name);
+                        if (fName) paramNameMap.set(index, fName);
                         if (fName && !variablesMap.has(fName)) {
                             const varObj: import('../types').TLBVariable = {
                                 name: fName,
@@ -1642,14 +1650,6 @@ export class Schema {
                         }
                     }
                 }
-                for (let i = 0; i < constructor.params.length; i++) {
-                    const paramExpr = constructor.params[i];
-                    if (paramExpr.tp === TypeExprType.Param) {
-                        const paramName = paramNames[i] || `_${paramExpr.value + 1}`;
-                        paramNameMap.set(paramExpr.value, paramName);
-                    }
-                }
-
                 // Convert fields and constraints
                 const fields: import('../types').TLBField[] = [];
                 const constraints: import('../types').TLBMathExpr[] = [];
@@ -1688,7 +1688,7 @@ export class Schema {
                 }
 
                 const tlbConstructor: import('../types').TLBConstructor = {
-                    name: constructorName,
+                    name: isAnonymous && anonymousCount > 0 ? `_${anonymousCount}` : constructorName,
                     tag: {
                         bitLen: tagBits,
                         binary: tagBinary,
@@ -1705,9 +1705,21 @@ export class Schema {
                 };
 
                 tlbType.constructors.push(tlbConstructor);
+                if (isAnonymous) anonymousCount++;
             }
 
             types.set(type.name, tlbType);
+        }
+
+        for (const type of types.values()) {
+            for (const constructor of type.constructors) {
+                for (const field of constructor.fields) {
+                    if (field.name || field.fieldType.kind !== 'TLBRefType') continue;
+                    const target = field.fieldType.value;
+                    if (target.kind !== 'TLBNamedType' || !this.findTypeByName(target.name)?.isAnon) continue;
+                    field.subFields = types.get(target.name)?.constructors[0].fields ?? [];
+                }
+            }
         }
 
         return types;
@@ -1786,6 +1798,12 @@ export class Schema {
                     const nExpr = this.typeExprToTLBMathExpr(expr.args[0], paramNameMap);
                     return {
                         kind: 'TLBNumberType',
+                        upperBound: {
+                            kind: 'TLBBinaryOp',
+                            operation: '-',
+                            left: nExpr,
+                            right: { kind: 'TLBNumberExpr', n: 1 },
+                        },
                         bits: {
                             kind: 'TLBUnaryOp',
                             operation: '.',
@@ -1807,6 +1825,7 @@ export class Schema {
                     const nExpr = this.typeExprToTLBMathExpr(expr.args[0], paramNameMap);
                     return {
                         kind: 'TLBNumberType',
+                        upperBound: nExpr,
                         bits: {
                             kind: 'TLBUnaryOp',
                             operation: '.',
@@ -1833,7 +1852,12 @@ export class Schema {
                     };
                 }
 
-                if (typeName === 'Bool') {
+                const definition = expr.typeApplied.constructors[0];
+                const constructorName = definition && symbolMap.getName(definition.constrName);
+                if (typeName === 'VmStack' && constructorName === 'vm_stack') {
+                    return { kind: 'TLBTupleType' };
+                }
+                if (typeName === 'Bool' || (typeName === 'Bit' && constructorName === 'bit')) {
                     return {
                         kind: 'TLBBoolType',
                     };
@@ -1869,15 +1893,36 @@ export class Schema {
                     };
                 }
 
-                const args: import('../types').TLBFieldType[] = expr.args.map((arg) =>
-                    this.typeExprToTLBFieldType(arg, paramNameMap),
-                );
+                const args: import('../types').TLBFieldType[] = expr.args.map((arg) => {
+                    if (arg.tp === TypeExprType.Param && arg.negated) {
+                        return {
+                            kind: 'TLBNegatedType',
+                            variableName: paramNameMap?.get(arg.value) ?? `_${arg.value + 1}`,
+                        };
+                    }
+                    if (arg.tp === TypeExprType.Param && arg.isNat && !arg.negated) {
+                        return { kind: 'TLBExprMathType', initialExpr: this.typeExprToTLBMathExpr(arg, paramNameMap) };
+                    }
+                    return this.typeExprToTLBFieldType(arg, paramNameMap);
+                });
                 return {
                     kind: 'TLBNamedType',
                     name: typeName,
                     arguments: args,
                 };
             }
+            case TypeExprType.CondType:
+                return {
+                    kind: 'TLBCondType',
+                    condition: this.typeExprToTLBMathExpr(expr.args[0], paramNameMap),
+                    value: this.typeExprToTLBFieldType(expr.args[1], paramNameMap),
+                };
+            case TypeExprType.MulConst:
+                return {
+                    kind: 'TLBMultipleType',
+                    times: this.typeExprToTLBMathExpr(expr.args[0], paramNameMap),
+                    value: this.typeExprToTLBFieldType(expr.args[1], paramNameMap),
+                };
             case TypeExprType.IntConst: {
                 return {
                     kind: 'TLBNumberType',

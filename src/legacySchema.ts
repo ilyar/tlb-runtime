@@ -52,7 +52,11 @@ function fieldType(type: legacy.TLBFieldType): TLBFieldType {
 }
 
 function field(f: legacy.TLBField): TLBField {
-    return { ...f, fieldType: fieldType(f.fieldType), subFields: f.subFields.map(field) };
+    const subFields = f.subFields.map(field);
+    if (f.name && subFields.length === 1 && subFields[0].name === f.name && !subFields[0].subFields.length) {
+        return { ...f, fieldType: { kind: 'TLBCellInsideType', value: subFields[0].fieldType }, subFields: [] };
+    }
+    return { ...f, fieldType: fieldType(f.fieldType), subFields };
 }
 
 function variable(v: legacy.TLBVariable): TLBVariable {
