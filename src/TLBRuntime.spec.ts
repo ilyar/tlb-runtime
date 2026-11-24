@@ -19,6 +19,23 @@ function corpusValue(data: unknown): unknown {
 }
 
 describe('TLBRuntime', () => {
+    const longTagBoc = 'te6cckEBAQEACwAAEYAAAAAAAAAQcJqaShY=';
+    it.each([
+        ['long#800000000000001 x:uint7 = Long;', 'Long'],
+        ['near#800000000000000 x:uint7 = Long; long#800000000000001 x:uint7 = Long;', 'Long_long'],
+    ])('round-trips a 60-bit constructor tag in %s', (schema, kind) => {
+        const runtime = runtimeBy(schema);
+        const cell = Cell.fromBase64(longTagBoc);
+        const value = { kind, x: 3 };
+        expect(runtime.decodeCell(cell, { rootType: 'Long' })).toEqual(value);
+        expect(runtime.encodeCell(value).toBoc()).toEqual(cell.toBoc());
+    });
+
+    it('finds the root type by a 60-bit tag when the last type does not match', () => {
+        const runtime = runtimeBy('long#800000000000001 x:uint7 = Long; other#ff x:uint7 = Other;');
+        expect(unwrap(runtime.deserialize(longTagBoc, true))).toEqual({ kind: 'Long', x: 3 });
+    });
+
     it('rejects a nested parameter that conflicts with its schema argument', () => {
         const schema = '_ {e:#} bits:(bits e) = Inner e; _ inner:(Inner 5) = Outer;';
         const bits = beginCell().storeUint(0, 6).endCell().bits;

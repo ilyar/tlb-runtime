@@ -1552,27 +1552,12 @@ export class Schema {
                     }
                 }
 
-                // Convert tag from bigint to hex string
-                let tagValue: number;
-                let tagBits: number;
-
                 const isAnonymous = constructorName === '_' || constructorName === '';
                 const hasExplicitEmptyTag = /[#$]_/.test(declaration.split(/\s/)[0]);
-
-                if ((isAnonymous && constructor.tagBits === 0) || hasExplicitEmptyTag) {
-                    tagValue = 0;
-                    tagBits = 0;
-                } else {
-                    tagValue = Number(constructor.tag);
-                    tagBits = constructor.tagBits;
-                }
-
-                let tagHex = tagValue.toString(16);
-                const expectedHexLen = Math.ceil(tagBits / 4);
-                if (tagHex.length < expectedHexLen) {
-                    tagHex = tagHex.padStart(expectedHexLen, '0');
-                }
-                const tagBinary = `0x${tagHex}`;
+                const emptyTag = (isAnonymous && constructor.tagBits === 0) || hasExplicitEmptyTag;
+                const tagBits = emptyTag ? 0 : constructor.tagBits;
+                const tagValue = emptyTag ? 0n : constructor.tag;
+                const tagBinary = `0x${tagValue.toString(16).padStart(Math.ceil(tagBits / 4), '0')}`;
 
                 const paramNameMap = new Map<number, string>();
                 for (const [index, field] of constructor.fields.entries()) {

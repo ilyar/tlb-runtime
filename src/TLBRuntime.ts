@@ -256,7 +256,7 @@ export class TLBRuntime<T = ParsedCell> {
 
         for (let len = maxLen; len >= 1; len--) {
             if (savedBits < len) continue;
-            const tagValue = slice.preloadUint(len);
+            const tagValue = slice.preloadUintBig(len);
             const key = tagKey({
                 bitLen: len,
                 binary: `0x${tagValue.toString(16)}`,
@@ -443,8 +443,8 @@ export class TLBRuntime<T = ParsedCell> {
                 for (const constructor of type.constructors) {
                     const len = constructor.tag.bitLen;
                     if (data.remainingBits >= len) {
-                        const tagValue = data.preloadUint(len);
-                        const expectedTagValue = Number(BigInt(constructor.tag.binary));
+                        const tagValue = data.preloadUintBig(len);
+                        const expectedTagValue = BigInt(constructor.tag.binary);
                         if (tagValue === expectedTagValue) {
                             // Tag matches, deserialize with this constructor
                             const result = this.deserializeConstructor(
@@ -557,9 +557,8 @@ export class TLBRuntime<T = ParsedCell> {
                 };
             }
             // Read tag bits from slice (consume them now since we're committed to this constructor)
-            const tagValue = slice.loadUint(len);
-            // Convert expected tag to number for comparison
-            const expectedTagValue = Number(BigInt(tagBinary));
+            const tagValue = slice.loadUintBig(len);
+            const expectedTagValue = BigInt(tagBinary);
             if (tagValue !== expectedTagValue) {
                 return {
                     success: false,
