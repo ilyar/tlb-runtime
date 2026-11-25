@@ -30,6 +30,30 @@ describe('TLBRuntime', () => {
         expect(maybe.encodeCell({ kind: 'Foo', x: null }).equals(beginCell().storeBit(0).endCell())).toBe(true);
     });
 
+    it.each(['extra:uint64', 'val:(## 1) { val = 0 }'])(
+        'retries a matching tagged constructor after %s fails',
+        (fields) => {
+            const runtime = runtimeBy(`short$1 ref:^uint8 ${fields} = T; long$11 ref:^uint8 val:uint8 = T;`);
+            const ref = beginCell().storeUint(42, 8).endCell();
+            const slice = beginCell()
+                .storeUint(3, 2)
+                .storeUint(7, 8)
+                .storeBit(0)
+                .storeRef(ref)
+                .storeRef(ref)
+                .endCell()
+                .beginParse();
+            expect(unwrap(runtime.deserializeByTypeName('T', slice))).toEqual({ kind: 'T_long', ref: 42, val: 7 });
+            expect(slice.remainingBits).toBe(1);
+            expect(slice.remainingRefs).toBe(1);
+
+            const truncated = beginCell().storeUint(3, 2).storeRef(ref).endCell().beginParse();
+            expect(runtime.deserializeByTypeName('T', truncated).success).toBe(false);
+            expect(truncated.remainingBits).toBe(2);
+            expect(truncated.remainingRefs).toBe(1);
+        },
+    );
+
     const longTagBoc = 'te6cckEBAQEACwAAEYAAAAAAAAAQcJqaShY=';
     it.each([
         ['long#800000000000001 x:uint7 = Long;', 'Long'],

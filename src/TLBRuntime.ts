@@ -438,52 +438,17 @@ export class TLBRuntime<T = ParsedCell> {
             }
         }
 
-        // For multi-constructor types, try to find matching constructor by tag first
-        if (type.constructors.length > 1) {
-            // Check if all constructors have tags
-            const allHaveTags = type.constructors.every((c) => c.tag.bitLen > 0);
-            if (allHaveTags) {
-                // Try to find matching constructor by tag
-                for (const constructor of type.constructors) {
-                    const len = constructor.tag.bitLen;
-                    if (data.remainingBits >= len) {
-                        const tagValue = data.preloadUintBig(len);
-                        const expectedTagValue = BigInt(constructor.tag.binary);
-                        if (tagValue === expectedTagValue) {
-                            // Tag matches, deserialize with this constructor
-                            const result = this.deserializeConstructor(
-                                type,
-                                constructor,
-                                data,
-                                args,
-                                initialVariables,
-                                context,
-                            );
-                            if (result.success) {
-                                return result;
-                            }
-                        }
-                    }
-                }
-                // No matching tag found
-                return {
-                    success: false,
-                    error: new TLBDataError(
-                        `Failed to deserialize type ${type.name}: no matching constructor tag found`,
-                    ),
-                };
-            }
-        }
-
-        // Fall back to trying all constructors (for single-constructor types or types without tags)
-        // For tagless types, try constructors in reverse order (last declared first)
-        // This matches the lastTypeName heuristic and handles cases like:
-        // a$_ {n:#} x:(HashmapE n uint5) = HashmapVarKey n;
+        // Prefer the last declaration for tagless types; tagged constructors retain schema order.
         const hasTagless = type.constructors.some((c) => c.tag.bitLen === 0);
         const constructorsToTry = hasTagless ? type.constructors.slice().reverse() : type.constructors;
+        const matchTags = !hasTagless && type.constructors.length > 1;
 
         let lastError: Error | undefined;
         for (const constructor of constructorsToTry) {
+            if (matchTags) {
+                const { bitLen, binary } = constructor.tag;
+                if (data.remainingBits < bitLen || data.preloadUintBig(bitLen) !== BigInt(binary)) continue;
+            }
             try {
                 const prev = data.clone();
                 const result = this.deserializeConstructor(type, constructor, prev, args, initialVariables, context);
@@ -514,7 +479,7 @@ export class TLBRuntime<T = ParsedCell> {
         return {
             success: false,
             error:
-                lastError ?? new TLBDataError(`Failed to deserialize type ${type.name} no matching constructor found`),
+                lastError ?? new TLBDataError(`Failed to deserialize type ${type.name}: no matching constructor found`),
         };
     }
 
