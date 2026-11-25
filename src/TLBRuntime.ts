@@ -2823,6 +2823,9 @@ export class TLBRuntime<T = ParsedCell> {
                     }
                 }
 
+                if (fieldType.name === 'SnakeString') {
+                    return slice.loadStringTail();
+                }
                 if (fieldType.name === 'Any') {
                     // Read remaining slice into a new cell
                     const b = beginCell();
@@ -4545,6 +4548,11 @@ export class TLBRuntime<T = ParsedCell> {
             }
 
             case 'TLBNamedType': {
+                if (fieldType.name === 'SnakeString') {
+                    if (typeof value !== 'string') throw new TLBDataError('SnakeString requires a string');
+                    builder.storeStringTail(value);
+                    break;
+                }
                 if (fieldType.name === 'Any') {
                     builder.storeSlice(value.beginParse());
                     break;

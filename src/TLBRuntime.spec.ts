@@ -19,6 +19,47 @@ function corpusValue(data: unknown): unknown {
 }
 
 describe('TLBRuntime', () => {
+    describe.each(['SnakeString', '^SnakeString'])('%s', (fieldType) => {
+        const runtime = runtimeBy(`text_comment#00000000 text:${fieldType} = Comment;`);
+
+        describe.each([
+            ['empty text', ''],
+            ['short text', 'hi'],
+            ['multi-cell UTF-8 text', 'я'.repeat(140)],
+        ])('%s', (_, text) => {
+            const root = beginCell().storeUint(0, 32);
+            const cell = (
+                fieldType === 'SnakeString' ? root.storeStringTail(text) : root.storeStringRefTail(text)
+            ).endCell();
+            const value = { kind: 'Comment', text };
+
+            it('decodes the reference cell', () => {
+                expect(runtime.decodeCell(cell, { rootType: 'Comment' })).toEqual(value);
+            });
+
+            it('encodes the reference cell', () => {
+                expect(runtime.encodeCell(value).equals(cell)).toBe(true);
+            });
+        });
+    });
+
+    it('reads a referenced SnakeString without consuming the next parent field or reference', () => {
+        const runtime = runtimeBy('_ text:^SnakeString n:uint8 tail:^uint8 = Example;');
+        const value = { kind: 'Example', text: 'hello', n: 7, tail: 9 };
+        const cell = beginCell()
+            .storeStringRefTail('hello')
+            .storeUint(7, 8)
+            .storeRef(beginCell().storeUint(9, 8))
+            .endCell();
+        expect(runtime.decodeCell(cell)).toEqual(value);
+        expect(runtime.encodeCell(value).equals(cell)).toBe(true);
+    });
+
+    it('rejects a non-string SnakeString value', () => {
+        const runtime = runtimeBy('_ text:SnakeString = Comment;');
+        expect(() => runtime.encodeCell({ kind: 'Comment', text: 42 })).toThrow(TLBDataError);
+    });
+
     it('rejects missing wire fields and skips inactive conditional fields', () => {
         const plain = runtimeBy('_ x:uint32 y:uint8 = Foo;');
         expect(() => plain.encodeCell({ kind: 'Foo', y: 7 })).toThrow(TLBDataError);
