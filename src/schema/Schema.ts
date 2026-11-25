@@ -1238,44 +1238,9 @@ export class Schema {
         if (expr.constructor.name === 'CompareExpr') {
             const leftExpr = this.parseTypeExpr(expr.left, where, params);
             const rightExpr = this.parseTypeExpr(expr.right, where, params);
-            const op = expr.op as string;
-
-            // Map comparison operators to built-in type names
-            let typeName = '';
-            switch (op) {
-                case '<=':
-                    typeName = '<=';
-                    break;
-                case '<':
-                    typeName = '<';
-                    break;
-                case '=':
-                    typeName = '=';
-                    break;
-                case '>=':
-                    typeName = '>=';
-                    break; // Not standard TL-B builtin?
-                case '>':
-                    typeName = '>';
-                    break;
-                case '!=':
-                    typeName = '!=';
-                    break;
-            }
-
-            if (typeName) {
-                const appliedType = this.findTypeByName(typeName);
-                if (appliedType) {
-                    const applyExpr = new TypeExpr(
-                        TypeExprType.Apply,
-                        appliedType,
-                        [leftExpr, rightExpr],
-                        0,
-                        false, // Comparisons don't produce Nat
-                        false,
-                    );
-                    return this.registerConstExpr(applyExpr);
-                }
+            const appliedType = this.findTypeByName(expr.op);
+            if (appliedType) {
+                return this.registerConstExpr(new TypeExpr(TypeExprType.Apply, appliedType, [leftExpr, rightExpr]));
             }
         }
 
@@ -1437,13 +1402,9 @@ export class Schema {
         for (let i = 1; i <= 1023; i++) {
             this.defineBuiltinType(`bits${i}`, [], false, i, i, true);
         }
-        this.defineBuiltinType('=', ['##'], false, 0, 0, true);
-        this.defineBuiltinType('<', ['##'], false, 0, 0, true);
-        this.defineBuiltinType('<=', ['##'], false, 0, 0, true);
-        symbolMap.lookupAdd('#');
-        symbolMap.lookupAdd('=');
-        symbolMap.lookupAdd('<');
-        symbolMap.lookupAdd('<=');
+        for (const op of ['=', '<', '<=', '>', '>=', '!=']) {
+            this.defineBuiltinType(op, ['##'], false, 0, 0, true);
+        }
     }
 
     private defineBuiltinType(

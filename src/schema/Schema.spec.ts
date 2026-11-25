@@ -1,3 +1,6 @@
+import { beginCell } from '@ton/core';
+
+import { runtimeBy } from '../TLBRuntime';
 import { groupCorpusFlat } from '../tesdata';
 import { UnpackedSize, packSize, Schema, unpackSize, PackedSize } from '.';
 import { TLBSchemaError } from '../errors';
@@ -42,10 +45,10 @@ describe('Schema', () => {
 
     test('builtin', () => {
         const actual = new Schema();
-        expect(actual.typesNum).toBe(1549);
-        expect(actual.builtinTypesNum).toBe(1549);
+        expect(actual.typesNum).toBe(1552);
+        expect(actual.builtinTypesNum).toBe(1552);
         expect(actual.userTypes.length).toBe(0);
-        expect(actual.userDefinedInfo).toBe(`1549 types defined, out of them 1549 built-in, 0 user-defined
+        expect(actual.userDefinedInfo).toBe(`1552 types defined, out of them 1552 built-in, 0 user-defined
 ****************
 0 constant expressions:
 `);
@@ -53,12 +56,23 @@ describe('Schema', () => {
         expect(actual.types).toMatchSnapshot();
     });
 
+    it.each([
+        ['>', 3, 2],
+        ['>=', 2, 1],
+        ['!=', 1, 2],
+    ] as const)('evaluates the %s constraint against the wire value', (op, valid, invalid) => {
+        const runtime = runtimeBy(`_ n:(## 8) { n ${op} 2 } = Example;`);
+        const read = (n: number) => runtime.decodeCell(beginCell().storeUint(n, 8).endCell(), { rootType: 'Example' });
+        expect(read(valid)).toEqual({ kind: 'Example', n: valid });
+        expect(() => read(invalid)).toThrow(/constraint violation/i);
+    });
+
     describe('test data', () => {
         test.each([
             // Note: typesNum/userTypesNum may differ from reference due to anonymous type handling
             // Reference implementation deduplicates identical anonymous types, which we don't do yet
-            ['block', 1762, 213],
-            ['schemes', 1865, 316],
+            ['block', 1765, 213],
+            ['schemes', 1868, 316],
         ])('%s', (name: string, typesNum: number, userTypesNum: number) => {
             const actual = unwrap(Schema.from(loadData(`${name}.tlb`)));
             // Compare first line (type counts) and verify parsing succeeded
