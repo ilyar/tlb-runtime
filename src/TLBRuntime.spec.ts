@@ -54,6 +54,31 @@ describe('TLBRuntime', () => {
         },
     );
 
+    it('preserves the decoded anonymous field name in a reference group', () => {
+        const runtime = runtimeBy('_ ^[ uint8 ] tail:uint8 = Example;');
+        const cell = beginCell().storeUint(9, 8).storeRef(beginCell().storeUint(42, 8)).endCell();
+        const decoded = runtime.decodeCell(cell);
+        expect(decoded).toEqual({ kind: 'Example', tail: 9, anon1: 42 });
+        expect(runtime.encodeCell({ kind: 'Example', tail: 9, anon0: 42 }).equals(cell)).toBe(true);
+        expect(runtime.encodeCell(decoded).equals(cell)).toBe(true);
+    });
+
+    it('round-trips anonymous fields across nested and sibling references', () => {
+        const runtime = runtimeBy('_ uint8 ^[ uint8 ^[ uint8 ] ] ^[ uint8 ] uint8 = Example;');
+        const cell = beginCell()
+            .storeUint(1, 8)
+            .storeUint(5, 8)
+            .storeRef(beginCell().storeUint(2, 8).storeRef(beginCell().storeUint(3, 8)))
+            .storeRef(beginCell().storeUint(4, 8))
+            .endCell();
+        const decoded = runtime.decodeCell(cell);
+        expect(decoded).toEqual({ kind: 'Example', anon0: 1, anon2: 2, anon3: 3, anon5: 4, anon6: 5 });
+        expect(() => runtime.encodeCell({ kind: 'Example', anon0: 1, anon3: 3, anon5: 4, anon6: 5 })).toThrow(
+            'Missing required field anon2',
+        );
+        expect(runtime.encodeCell(decoded).equals(cell)).toBe(true);
+    });
+
     const longTagBoc = 'te6cckEBAQEACwAAEYAAAAAAAAAQcJqaShY=';
     it.each([
         ['long#800000000000001 x:uint7 = Long;', 'Long'],

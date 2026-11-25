@@ -130,6 +130,15 @@ class ParameterContext {
     }
 }
 
+// Older writers numbered anonymous leaves separately inside each reference group.
+function canUseLegacyAnon0(leaf: TLBField, fields: TLBField[]): boolean {
+    return fields.every((field) => {
+        if (field === leaf || field.implicit) return true;
+        if (field.name === 'anon0') return false;
+        return field.subFields.length ? canUseLegacyAnon0(leaf, field.subFields) : !!field.name;
+    });
+}
+
 function tagKey(tag: TLBConstructorTag): string {
     return `0b${BigInt(tag.binary).toString(2).padStart(tag.bitLen, '0')}`;
 }
@@ -3639,11 +3648,14 @@ export class TLBRuntime<T = ParsedCell> {
             }
         }
 
-        // Serialize fields
-        // Track anonymous field index for fields without names
+        let anonymousIndex = 0;
         const writeFields = (fields: TLBField[], target: Builder) => {
-            let anonymousIndex = 0;
             for (const field of fields) {
+                // The decoder assigns a slot to each top-level anonymous field, including reference groups.
+                // Within a flattened reference group only its unnamed leaves receive slots.
+                const name =
+                    field.name ||
+                    (fields === constructor.fields || !field.subFields.length ? `anon${anonymousIndex++}` : '');
                 if (field.implicit) continue;
                 if (field.subFields.length) {
                     const nested = beginCell();
@@ -3651,7 +3663,6 @@ export class TLBRuntime<T = ParsedCell> {
                     target.storeRef(nested.endCell());
                     continue;
                 }
-                const name = field.name || `anon${anonymousIndex++}`;
                 let fieldType = this.bindTypeParameters(field.fieldType, typeParams);
                 while (
                     fieldType.kind === 'TLBCondType' &&
@@ -3660,8 +3671,17 @@ export class TLBRuntime<T = ParsedCell> {
                     fieldType = fieldType.value;
                 }
                 if (fieldType.kind === 'TLBCondType') continue;
-                if (data[name] === undefined) throw new TLBDataError(`Missing required field ${name} in ${type.name}`);
-                this.serializeField({ ...field, fieldType }, data[name], target, variables);
+                let fieldValue = data[name];
+                if (
+                    fieldValue === undefined &&
+                    !field.name &&
+                    data.anon0 !== undefined &&
+                    canUseLegacyAnon0(field, constructor.fields)
+                ) {
+                    fieldValue = data.anon0;
+                }
+                if (fieldValue === undefined) throw new TLBDataError(`Missing required field ${name} in ${type.name}`);
+                this.serializeField({ ...field, fieldType }, fieldValue, target, variables);
             }
         };
         writeFields(constructor.fields, builder);
