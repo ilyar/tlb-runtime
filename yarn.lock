@@ -1419,9 +1419,8 @@ __metadata:
     "@types/node": "npm:^24.10.1"
     eslint: "npm:^9.39.2"
     jest: "npm:^30.2.0"
-    ohm-js: "npm:^17.3.0"
     prettier: "npm:^3.5.3"
-    tlb-parser-source: "https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253"
+    tlb-parser-v2: "npm:@ton-community/tlb-parser@^0.2.1"
     ts-jest: "npm:^29.4.6"
     ts-node: "npm:^10.9.2"
     typescript: "npm:^5.9.3"
@@ -5129,7 +5128,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ohm-js@npm:^17.3.0, ohm-js@npm:^v17.3.0":
+"ohm-js@npm:^v17.3.0":
   version: 17.5.0
   resolution: "ohm-js@npm:17.5.0"
   checksum: 10c0/5bee87a84084a68f636f575ae9a6460642a2584671751e717083f00efea900c402e5583056a0559eaec070cc28874a9ae9f69aa42020974822285bd1bdb60833
@@ -6081,14 +6080,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tlb-parser-source@https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253":
-  version: 0.2.0
-  resolution: "tlb-parser-source@https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253"
+"tlb-parser-v2@npm:@ton-community/tlb-parser@^0.2.1":
+  version: 0.2.1
+  resolution: "@ton-community/tlb-parser@npm:0.2.1"
   dependencies:
     ohm-js: "npm:^v17.3.0"
   bin:
-    tlb-parser: ./dist/cli.js
-  checksum: 10c0/d9353e71aa54b09a4379bcbf617475db3e1cb39c30ac54295eb558941ad420bdfec84c29fab6cfb6341b01cb38cd65c6a6c802a6c49d0aeec2768cff46081257
+    tlb-parser: dist/cli.js
+  checksum: 10c0/6df5726486acdc04fd96cea3b3de0f00e589df5288a52cb271901a8823cbd3f360b6e17940b1c8e2f868bba0628425ba72079980dd1deeff2a436f406e356379
   languageName: node
   linkType: hard
 

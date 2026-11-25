@@ -1,4 +1,5 @@
-import * as tlb from '../../build/tlb-parser';
+import * as tlb from 'tlb-parser-v2';
+
 import { crc32 } from '../utils';
 
 function fields(items: tlb.FieldDefinition[]): string {

@@ -5,21 +5,19 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist/**/*",
-    "build/tlb-parser"
+    "dist/**/*"
   ],
   "prettier": "@ton/toolchain/prettier",
   "scripts": {
-    "clean": "node -e \"for (const dir of ['dist', 'build/tlb-parser']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "qa": "yarn build && yarn lint && yarn test --coverage",
-    "build:parser": "tsc --project node_modules/tlb-parser-source/tsconfig.build.json --outDir build/tlb-parser && node -e \"require('node:fs').copyFileSync('node_modules/tlb-parser-source/LICENSE', 'build/tlb-parser/LICENSE')\"",
-    "build": "npm run build:parser && tsc",
-    "dev": "npm run build:parser && tsc --watch",
+    "build": "tsc",
+    "dev": "tsc --watch",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --max-warnings 0 --fix",
-    "test": "npm run build:parser && jest",
-    "test:watch": "npm run build:parser && jest --watch",
-    "test:coverage": "npm run build:parser && jest --coverage",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "prepublishOnly": "npm run clean && npm run build",
     "changeset": "changeset",
     "version-packages": "changeset version",
@@ -51,7 +49,6 @@
     "eslint": "^9.39.2",
     "jest": "^30.2.0",
     "prettier": "^3.5.3",
-    "tlb-parser-source": "https://codeload.github.com/ton-community/tlb-parser/tar.gz/a1d74c8e71b6e983547306a11733d48d410aa253",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
@@ -67,7 +64,7 @@
     "@ton-community/tlb-parser": "^0.1.5",
     "@ton/core": "^0.63.0",
     "@ton/crypto": "^3.3.0",
-    "ohm-js": "^17.3.0"
+    "tlb-parser-v2": "npm:@ton-community/tlb-parser@^0.2.1"
   },
   "packageManager": "yarn@4.17.0+sha512.c2957de2f9025ab14d63b24d0d8be1f1655810e22c341042c27f7ecd017b180ec12db73d69ac366d71b304ef9f069349ce462de96f04f8f1da317f4f762c95ae"
 }

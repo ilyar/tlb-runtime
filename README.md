@@ -120,4 +120,4 @@ The [publish workflow](.github/workflows/deploy.yml) checks the tag against the 
 
 ## Parser source
 
-The build compiles the official [TL-B parser v0.2.0](https://github.com/ton-community/tlb-parser/tree/a1d74c8e71b6e983547306a11733d48d410aa253) with its upstream TypeScript configuration. The runtime package includes the compiled parser, its type declarations and its MIT license in `build/tlb-parser`. The deprecated API continues to use the parser supplied by `tlb-codegen`.
+The runtime uses the npm release of [@ton-community/tlb-parser](https://www.npmjs.com/package/@ton-community/tlb-parser). The dependency name `tlb-parser-v2` distinguishes the 0.2.x parser from the 0.1.x parser required by `tlb-codegen` for the deprecated API.

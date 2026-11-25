@@ -1,4 +1,5 @@
-import { ast, Declaration, FieldAnonymousDef, FieldAnonExpr, walk } from '../../build/tlb-parser';
+import { ast, Declaration, FieldAnonymousDef, FieldAnonExpr, walk } from 'tlb-parser-v2';
+
 import { Result } from '../Result';
 import { TLBSchemaError } from '../errors';
 import { symbolMap } from './SymbolMap';
