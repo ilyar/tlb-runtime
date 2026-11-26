@@ -2609,6 +2609,32 @@ export class TLBRuntime<T = ParsedCell> {
         return undefined;
     }
 
+    private readDictionary(
+        slice: Slice,
+        keySize: number,
+        valueType: TLBFieldType,
+        direct: boolean,
+        variables: Map<string, number>,
+        ctxConstructor: TLBConstructor,
+        ctxArgs: TLBFieldType[],
+        context?: ParameterContext,
+    ) {
+        const captured = new Map(variables);
+        const leafType = context ? this.bindTypeParameters(valueType, context.getAllTypeParams()) : valueType;
+        const codec = {
+            parse: (leaf: Slice) =>
+                this.deserializeFieldType(leafType, leaf, new Map(captured), ctxConstructor, ctxArgs, context),
+            serialize: (entry: DecodedCell, leaf: Builder) =>
+                this.serializeFieldType(leafType, entry, leaf, new Map(captured)),
+        };
+        if (keySize > 32) {
+            const key = Dictionary.Keys.BigUint(keySize);
+            return direct ? slice.loadDictDirect(key, codec) : slice.loadDict(key, codec);
+        }
+        const key = Dictionary.Keys.Uint(keySize);
+        return direct ? slice.loadDictDirect(key, codec) : slice.loadDict(key, codec);
+    }
+
     private deserializeFieldType(
         fieldType: TLBFieldType,
         slice: Slice,
@@ -2870,79 +2896,16 @@ export class TLBRuntime<T = ParsedCell> {
                         );
                     }
 
-                    // Extract value type (X) from second argument
-                    const valueType = args[1];
-
-                    // Read tag bit: 0 = hme_empty, 1 = hme_root
-                    const tag = slice.loadBit();
-
-                    if (tag === false) {
-                        // hme_empty$0: return empty dictionary
-                        if (keySize > 32) {
-                            return Dictionary.empty(Dictionary.Keys.BigUint(keySize));
-                        } else {
-                            return Dictionary.empty(Dictionary.Keys.Uint(keySize));
-                        }
-                    } else {
-                        // hme_root$1: load Hashmap from ref
-                        if (slice.remainingRefs === 0) {
-                            throw new TLBDataError('HashmapE hme_root requires a reference');
-                        }
-                        const ref = slice.loadRef();
-                        const refSlice = ref.beginParse(true);
-
-                        // Deserialize Hashmap from the reference
-                        // Hashmap is essentially a dictionary, so we can use TLBHashmapType logic
-                        // If valueType is a reference (TLBRefType), we need to handle it specially
-                        // When Dictionary stores values as Cells, each value is serialized into a cell
-                        // For reference types (^OptionType), the cell contains a reference to the actual value
-                        const parseValue = (sl: Slice) => {
-                            // Check if valueType is a reference type
-                            if (valueType.kind === 'TLBRefType') {
-                                // For reference types, the value in the dictionary cell is a cell reference
-                                // Load the reference and deserialize the inner type
-                                if (sl.remainingRefs === 0) {
-                                    throw new TLBDataError('HashmapE value requires a reference for TLBRefType');
-                                }
-                                const valueRef = sl.loadRef();
-                                const valueRefSlice = valueRef.beginParse(true);
-                                return this.deserializeFieldType(
-                                    valueType.value,
-                                    valueRefSlice,
-                                    new Map(variables),
-                                    ctxConstructor,
-                                    ctxArgs,
-                                    context,
-                                );
-                            } else {
-                                // For non-reference types, deserialize directly from the slice
-                                // The slice contains the serialized value from the dictionary cell
-                                return this.deserializeFieldType(
-                                    valueType,
-                                    sl,
-                                    new Map(variables),
-                                    ctxConstructor,
-                                    ctxArgs,
-                                    context,
-                                );
-                            }
-                        };
-
-                        // Use loadDictDirect since we already have the reference cell
-                        if (keySize > 32) {
-                            const dict = refSlice.loadDictDirect(Dictionary.Keys.BigUint(keySize), {
-                                serialize: () => {},
-                                parse: parseValue,
-                            });
-                            return dict.size === 0 ? Dictionary.empty(Dictionary.Keys.BigUint(keySize)) : dict;
-                        } else {
-                            const dict = refSlice.loadDictDirect(Dictionary.Keys.Uint(keySize), {
-                                serialize: () => {},
-                                parse: parseValue,
-                            });
-                            return dict.size === 0 ? Dictionary.empty(Dictionary.Keys.Uint(keySize)) : dict;
-                        }
-                    }
+                    return this.readDictionary(
+                        slice,
+                        keySize,
+                        args[1],
+                        false,
+                        variables,
+                        ctxConstructor,
+                        ctxArgs,
+                        context,
+                    );
                 }
 
                 // Handle #< n and #<= n limited nat types
@@ -3363,37 +3326,17 @@ export class TLBRuntime<T = ParsedCell> {
                 );
             }
 
-            case 'TLBHashmapType': {
-                const keySize = evaluator.evaluate(fieldType.key);
-                const parseValue = (sl: Slice) =>
-                    this.deserializeFieldType(
-                        fieldType.value,
-                        sl,
-                        new Map(variables),
-                        ctxConstructor,
-                        ctxArgs,
-                        context,
-                    );
-                const emptyBig = () => Dictionary.empty(Dictionary.Keys.BigUint(keySize));
-                const emptyNum = () => Dictionary.empty(Dictionary.Keys.Uint(keySize));
-                if (keySize > 32) {
-                    const dict = fieldType.directStore
-                        ? slice.loadDictDirect(Dictionary.Keys.BigUint(keySize), {
-                              serialize: () => {},
-                              parse: parseValue,
-                          })
-                        : slice.loadDict(Dictionary.Keys.BigUint(keySize), { serialize: () => {}, parse: parseValue });
-                    return dict.size === 0 ? emptyBig() : dict;
-                } else {
-                    const dict = fieldType.directStore
-                        ? slice.loadDictDirect(Dictionary.Keys.Uint(keySize), {
-                              serialize: () => {},
-                              parse: parseValue,
-                          })
-                        : slice.loadDict(Dictionary.Keys.Uint(keySize), { serialize: () => {}, parse: parseValue });
-                    return dict.size === 0 ? emptyNum() : dict;
-                }
-            }
+            case 'TLBHashmapType':
+                return this.readDictionary(
+                    slice,
+                    evaluator.evaluate(fieldType.key),
+                    fieldType.value,
+                    fieldType.directStore === true,
+                    variables,
+                    ctxConstructor,
+                    ctxArgs,
+                    context,
+                );
 
             case 'TLBVarIntegerType': {
                 const size = evaluator.evaluate(fieldType.n);
