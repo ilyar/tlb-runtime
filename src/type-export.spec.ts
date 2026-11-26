@@ -9,15 +9,15 @@ import { runtimeBy, parseTLB, TLBRuntime, unwrap, replacer, TLBDataError, TLBSch
 import { TLBStd, TLBLib } from './tesdata';
 import { resolveTypeGraph } from './type-graph';
 
-const share =
-    TLBStd.Either +
-    `
-schema_text$01 data:^SnakeString = Schema;
-data_json$01 data:^SnakeString = Data;
-boc_none$00 = Boc;
-boc_cell$01 cell:^Cell = Boc;
-boc_raw$10 data:^SnakeString = Boc;
-share_v1#01 schema:Schema payload:(Either Boc Data) = Share;`;
+const share = `
+text$01 data:^SnakeString = Schema;
+json$01 data:^SnakeString = Data;
+cell$01 data:^Cell = Boc;
+hex$10 data:^SnakeString = Boc;
+none$00 = Payload;
+boc$01 value:Boc = Payload;
+data$10 value:Data = Payload;
+share_v1#01 schema:Schema payload:Payload = Share;`;
 
 describe('resolved type graph', () => {
     it('specializes nested arguments, deduplicates instances and reserves user names before traversal', () => {
@@ -70,34 +70,44 @@ describe('Draft-07 JSON Schema', () => {
     const ajv = new Ajv();
     it('validates actual Share cells for every branch and preserves literal field descriptions', () => {
         const r = runtimeBy(share);
-        const j = r.toJSONSchema({ rootType: 'Share', title: 'Share link' });
-        expect(j.title).toBe('Share link');
+        const j = r.toJSONSchema({ rootType: 'Share', title: 'Schema for Share' });
+        expect(j.title).toBe('Schema for Share');
         expect(j.$schema).toBe('http://json-schema.org/draft-07/schema#');
         expect(JSON.parse(JSON.stringify(j))).toEqual(j);
         expect(ajv.validateSchema(j)).toBe(true);
         expect(j.definitions!.Schema.properties!.data.description).toBe('^SnakeString');
         const validate = ajv.compile(j);
-        for (const [right, tag] of [
-            [0, 0],
-            [0, 1],
-            [0, 2],
-            [1, 1],
-        ]) {
-            const b = beginCell()
-                .storeUint(1, 8)
-                .storeUint(1, 2)
-                .storeStringRefTail('_ = A;')
-                .storeBit(right)
-                .storeUint(tag, 2);
-            if (right || tag === 2) b.storeStringRefTail('text');
-            else if (tag === 1) b.storeRef(beginCell().endCell());
-            const cell = b.endCell();
-            const decoded = r.decodeCell(cell, { rootType: 'Share' });
+        const content = beginCell().storeUint(42, 8).endCell();
+        const payloads = [
+            { bits: '00', expected: { kind: 'Payload_none' } },
+            {
+                bits: '0101',
+                ref: content,
+                expected: { kind: 'Payload_boc', value: { kind: 'Boc_cell', data: content } },
+            },
+            {
+                bits: '0110',
+                ref: beginCell().storeStringTail('2a').endCell(),
+                expected: { kind: 'Payload_boc', value: { kind: 'Boc_hex', data: '2a' } },
+            },
+            {
+                bits: '1001',
+                ref: beginCell().storeStringTail('{}').endCell(),
+                expected: { kind: 'Payload_data', value: { kind: 'Data', data: '{}' } },
+            },
+        ];
+        for (const { bits, ref, expected } of payloads) {
+            const builder = beginCell().storeUint(1, 8).storeUint(1, 2).storeStringRefTail('_ = A;');
+            builder.storeUint(parseInt(bits, 2), bits.length);
+            if (ref) builder.storeRef(ref);
+            const cell = builder.endCell();
+            const decoded = r.decodeCell(cell, { rootType: 'Share', exact: true });
+            expect(JSON.stringify(decoded.payload, replacer)).toBe(JSON.stringify(expected, replacer));
             expect(r.encodeCell(decoded).equals(cell)).toBe(true);
             const data = JSON.parse(JSON.stringify(decoded, replacer));
             expect(validate(data)).toBe(true);
             expect(validate({ ...data, typo: 1 })).toBe(false);
-            expect(validate({ ...data, payload: { kind: 'Either_left', value: { kind: 'Data', data: 'oops' } } })).toBe(
+            expect(validate({ ...data, payload: { kind: 'Payload_boc', value: { kind: 'Data', data: 'oops' } } })).toBe(
                 false,
             );
             expect(ajv.validate(r.toJSONSchema({ additionalProperties: true }), { ...data, typo: 1 })).toBe(true);
@@ -180,6 +190,8 @@ function diagnostics(source: string) {
         target: ts.ScriptTarget.ES2022,
         module: ts.ModuleKind.CommonJS,
         strict: true,
+        noUnusedLocals: true,
+        noUnusedParameters: true,
         skipLibCheck: true,
         esModuleInterop: true,
         types: ['node'],
@@ -220,25 +232,39 @@ describe('TypeScript declarations', () => {
             r.toTypeScript() +
             `
 import { beginCell } from '@ton/core';
-import { TLBRuntime } from './src';
-const runtime = TLBRuntime.from<Share>('');
-const bc: Boc = {kind:'Boc_boc_cell',cell:beginCell().endCell()};
-const empty: Boc = {kind:'Boc_boc_none'};
-const raw: Boc = {kind:'Boc_boc_raw',data:'bad'};
-const data: Data = {kind:'Data',data:'{}'};
-function share(payload: Either_Boc_Data): Share {return {kind:'Share',schema:{kind:'Schema',data:''},payload};}
-share({kind:'Either_right',value:data});
-for(const value of [empty,raw,bc]) share({kind:'Either_left',value});
-function preview(s: Share) {
-    if(s.payload.kind === 'Either_right') return s.payload.value.data.toUpperCase();
-    const value = s.payload.value;
-    if(value.kind === 'Boc_boc_cell') return value.cell.toBoc();
-    if(value.kind === 'Boc_boc_raw') return value.data.toUpperCase();
+import { runtimeBy } from './src';
+const runtime = runtimeBy<Share>(${JSON.stringify(share)});
+const inputs: Payload[] = [
+    { kind: 'Payload_none' },
+    { kind: 'Payload_boc', value: { kind: 'Boc_cell', data: beginCell().endCell() } },
+    { kind: 'Payload_boc', value: { kind: 'Boc_hex', data: '2a' } },
+    { kind: 'Payload_data', value: { kind: 'Data', data: '{}' } },
+];
+
+function preview({ payload }: Share) {
+    switch (payload.kind) {
+        case 'Payload_none': return undefined;
+        case 'Payload_data': return payload.value.data.toUpperCase();
+        case 'Payload_boc': {
+            const boc = payload.value;
+            switch (boc.kind) {
+                case 'Boc_cell': return boc.data.toBoc();
+                case 'Boc_hex': return boc.data.toUpperCase();
+            }
+            return boc satisfies never;
+        }
+    }
+    return payload satisfies never;
 }
-const tree: Tree = {kind:'Tree_node',next:{kind:'Tree_leaf',n:42n,b:'hi'}};
+
+for (const payload of inputs) {
+    const share: Share = { kind: 'Share', schema: { kind: 'Schema', data: '' }, payload };
+    preview(runtime.decodeCell(runtime.encodeCell(share)));
+}
+export const tree: Tree = { kind: 'Tree_node', next: { kind: 'Tree_leaf', n: 42n, b: 'hi' } };
 `;
         expect(diagnostics(tsCode)).toEqual([]);
-        expect(diagnostics(tsCode + "\nconst bad: Boc = {kind:'Boc_boc_cell',cell:'abc'};")).toEqual([
+        expect(diagnostics(tsCode + "\nexport const bad: Boc = {kind:'Boc_cell',data:'abc'};")).toEqual([
             expect.stringContaining("not assignable to type 'Cell'"),
         ]);
     });

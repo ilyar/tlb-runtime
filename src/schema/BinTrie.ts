@@ -163,8 +163,4 @@ export class BinTrie {
         }
         return result;
     }
-
-    private lowestBit(x: bigint): bigint {
-        return x & -x;
-    }
 }

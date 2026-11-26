@@ -1079,7 +1079,6 @@ export class TLBRuntime<T = ParsedCell> {
                 } else {
                     // Try to evaluate as math expression
                     try {
-                        void variables; // Reserved for evaluator use
                         // Parse simple expressions like "e * 8" or "n + 1"
                         if (
                             bitsExpr.includes('+') ||
@@ -1170,7 +1169,6 @@ export class TLBRuntime<T = ParsedCell> {
                 } else {
                     // Try to evaluate as math expression
                     try {
-                        void variables; // Reserved for evaluator use
                         // Parse simple expressions like "7 * e" or "n + 1"
                         if (
                             bitsExpr.includes('+') ||
@@ -1277,7 +1275,6 @@ export class TLBRuntime<T = ParsedCell> {
                 } else {
                     // Try to evaluate as math expression
                     try {
-                        void variables; // Reserved for evaluator use
                         // Parse simple expressions like "5 + e" or "len * 8"
                         // For now, handle simple cases - if it contains +, -, *, /, evaluate it
                         if (
@@ -1365,7 +1362,6 @@ export class TLBRuntime<T = ParsedCell> {
                 } else {
                     // Try to evaluate as math expression
                     try {
-                        void variables; // Reserved for evaluator use
                         // Parse simple expressions like "5 + e" or "len * 8"
                         if (
                             bitsExpr.includes('+') ||
@@ -3724,7 +3720,6 @@ export class TLBRuntime<T = ParsedCell> {
                     } else {
                         // Try to evaluate as math expression
                         try {
-                            void variables; // Reserved for evaluator use
                             // Parse simple expressions like "e * 8" or "n + 1"
                             if (
                                 bitsExpr.includes('+') ||
@@ -3799,7 +3794,6 @@ export class TLBRuntime<T = ParsedCell> {
                     } else {
                         // Try to evaluate as math expression
                         try {
-                            void variables; // Reserved for evaluator use
                             // Parse simple expressions like "7 * e" or "n + 1"
                             if (
                                 bitsExpr.includes('+') ||
@@ -3863,7 +3857,6 @@ export class TLBRuntime<T = ParsedCell> {
             const bitsConstantMatches = constructor.declaration.matchAll(/(\w+):bits(\d+)/g);
             for (const match of bitsConstantMatches) {
                 const fieldName = match[1];
-                const _bits = parseInt(match[2], 10);
                 const fieldValue = data[fieldName];
 
                 if (fieldValue !== undefined) {
@@ -3887,63 +3880,12 @@ export class TLBRuntime<T = ParsedCell> {
                 const fieldValue = data[fieldName];
 
                 if (fieldValue !== undefined) {
-                    // Evaluate bits expression (could be constant number, variable name, or expression)
-                    let _bits: number;
-                    if (/^\d+$/.test(bitsExpr)) {
-                        // Constant: (bits 256)
-                        _bits = parseInt(bitsExpr, 10);
-                    } else {
-                        // Try to evaluate as math expression
-                        try {
-                            void variables; // Reserved for evaluator use
-                            // Parse simple expressions like "5 + e" or "len * 8"
-                            // For now, handle simple cases - if it contains +, -, *, /, evaluate it
-                            if (
-                                bitsExpr.includes('+') ||
-                                bitsExpr.includes('-') ||
-                                bitsExpr.includes('*') ||
-                                bitsExpr.includes('/')
-                            ) {
-                                // Simple expression parsing - split by operators and evaluate
-                                // This is a simplified parser - for complex expressions, the fieldType conversion should handle it
-                                const parts = bitsExpr.split(/([+\-*/])/);
-                                let result = 0;
-                                let op = '+';
-                                for (const part of parts) {
-                                    const trimmed = part.trim();
-                                    if (trimmed === '+' || trimmed === '-' || trimmed === '*' || trimmed === '/') {
-                                        op = trimmed;
-                                    } else if (/^\d+$/.test(trimmed)) {
-                                        const num = parseInt(trimmed, 10);
-                                        if (op === '+') result += num;
-                                        else if (op === '-') result -= num;
-                                        else if (op === '*') result *= num;
-                                        else if (op === '/') result = Math.floor(result / num);
-                                    } else {
-                                        // Variable name
-                                        const varValue = variables.get(trimmed);
-                                        if (varValue === undefined) {
-                                            throw new TLBDataError(
-                                                `Variable ${trimmed} not found for field ${fieldName}`,
-                                            );
-                                        }
-                                        if (op === '+') result += safeExpressionNumber(varValue);
-                                        else if (op === '-') result -= safeExpressionNumber(varValue);
-                                        else if (op === '*') result *= safeExpressionNumber(varValue);
-                                        else if (op === '/')
-                                            result = Math.floor(result / safeExpressionNumber(varValue));
-                                    }
-                                }
-                                _bits = result;
-                            } else {
-                                // Single variable name
-                                const varValue = variables.get(bitsExpr);
-                                if (varValue === undefined) {
-                                    throw new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`);
-                                }
-                                _bits = safeExpressionNumber(varValue);
-                            }
-                        } catch (_error) {
+                    // Preserve validation of variable operands before storing the supplied bits.
+                    for (const operand of bitsExpr.split(/[+\-*/]/)) {
+                        const name = operand.trim();
+                        if (/^\d+$/.test(name)) continue;
+                        const value = variables.get(name);
+                        if (value === undefined || !Number.isSafeInteger(Number(value))) {
                             throw new TLBDataError(
                                 `Failed to evaluate bits expression for field ${fieldName}: ${bitsExpr}`,
                             );
