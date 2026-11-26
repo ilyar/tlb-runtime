@@ -2007,15 +2007,18 @@ export class TLBRuntime<T = ParsedCell> {
             } else {
                 value[fieldName] = this.deserializeField(field, slice, variables, constructor, args, childContext);
 
-                // Propagate result parameters from deserialized field back to variables
-                // This is needed for types like Unary where parent variable depends on child result (e.g. label:(Unary ~l))
+                // A reference changes the wire location but preserves the result arguments of its type.
+                let resultType = field.fieldType;
+                while (resultType.kind === 'TLBRefType' || resultType.kind === 'TLBCellInsideType') {
+                    resultType = resultType.value;
+                }
                 if (
-                    field.fieldType.kind === 'TLBNamedType' &&
+                    resultType.kind === 'TLBNamedType' &&
                     typeof value[fieldName] === 'object' &&
                     value[fieldName] !== null
                 ) {
-                    for (let k = 0; k < field.fieldType.arguments.length; k++) {
-                        const arg = field.fieldType.arguments[k];
+                    for (let k = 0; k < resultType.arguments.length; k++) {
+                        const arg = resultType.arguments[k];
                         const resVal = this.resultArgs.get(value[fieldName])?.[k];
 
                         if (typeof resVal === 'number') {
