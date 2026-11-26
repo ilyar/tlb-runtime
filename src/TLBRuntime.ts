@@ -166,6 +166,36 @@ function loadRemainingCell(slice: Slice): Cell {
     return builder.endCell();
 }
 
+// Capture numeric expressions before a type argument enters a new constructor scope.
+function bindNumericArgument(type: TLBFieldType, evaluator: MathExprEvaluator): TLBFieldType {
+    const bind = (expr: _TLBMathExpr): _TLBMathExpr =>
+        expr.kind === 'TLBNumberExpr' ? expr : { kind: 'TLBNumberExpr', n: evaluator.evaluate(expr) };
+    switch (type.kind) {
+        case 'TLBNamedType':
+            return { ...type, arguments: type.arguments.map((arg) => bindNumericArgument(arg, evaluator)) };
+        case 'TLBNumberType':
+            return { ...type, bits: bind(type.bits), ...(type.upperBound && { upperBound: bind(type.upperBound) }) };
+        case 'TLBBitsType':
+            return { ...type, bits: bind(type.bits) };
+        case 'TLBExprMathType':
+            return { ...type, initialExpr: bind(type.initialExpr) };
+        case 'TLBVarIntegerType':
+            return { ...type, n: bind(type.n) };
+        case 'TLBMultipleType':
+            return { ...type, times: bind(type.times), value: bindNumericArgument(type.value, evaluator) };
+        case 'TLBHashmapType':
+            return { ...type, key: bind(type.key), value: bindNumericArgument(type.value, evaluator) };
+        case 'TLBConditionalType':
+        case 'TLBCondType':
+            return { ...type, condition: bind(type.condition), value: bindNumericArgument(type.value, evaluator) };
+        case 'TLBRefType':
+        case 'TLBCellInsideType':
+            return { ...type, value: bindNumericArgument(type.value, evaluator) };
+        default:
+            return type;
+    }
+}
+
 function tagKey(tag: TLBConstructorTag): string {
     return `0b${BigInt(tag.binary).toString(2).padStart(tag.bitLen, '0')}`;
 }
@@ -2934,19 +2964,6 @@ export class TLBRuntime<T = ParsedCell> {
                         (arg) => arg.kind !== 'TLBNamedType' || !ctxConstructor?.variablesMap.get(arg.name)?.negated,
                     )
                     .map((arg) => {
-                        // Resolve numeric arguments in the caller before entering the callee's scope.
-                        if (arg.kind === 'TLBExprMathType') {
-                            return {
-                                kind: 'TLBExprMathType' as const,
-                                initialExpr: { kind: 'TLBNumberExpr' as const, n: evaluator.evaluate(arg.initialExpr) },
-                            };
-                        }
-                        if (arg.kind === 'TLBNumberType' && arg.bits.kind !== 'TLBNumberExpr') {
-                            return {
-                                ...arg,
-                                bits: { kind: 'TLBNumberExpr' as const, n: evaluator.evaluate(arg.bits) },
-                            };
-                        }
                         // First check if this is a Type parameter in context
                         if (arg.kind === 'TLBNamedType' && context) {
                             const resolvedType = context.resolveType(arg.name);
@@ -2996,7 +3013,8 @@ export class TLBRuntime<T = ParsedCell> {
                         }
 
                         return context ? this.bindTypeParameters(arg, context.getAllTypeParams()) : arg;
-                    });
+                    })
+                    .map((arg) => bindNumericArgument(arg, evaluator));
                 const childVars = new Map<string, number | bigint>();
                 const parentEvaluator = new MathExprEvaluator(variables);
                 // Track which parameters are negated (need to propagate computed values back)
@@ -3370,10 +3388,7 @@ export class TLBRuntime<T = ParsedCell> {
             const arg = args[i];
             if (!arg) continue;
             if (param.variable.type === 'Type') {
-                if (arg.kind === 'TLBNumberType' && arg.bits.kind !== 'TLBNumberExpr') {
-                    const bits = new MathExprEvaluator(callerVariables).evaluate(arg.bits);
-                    typeParams.set(param.variable.name, { ...arg, bits: { kind: 'TLBNumberExpr', n: bits } });
-                } else typeParams.set(param.variable.name, arg);
+                typeParams.set(param.variable.name, bindNumericArgument(arg, new MathExprEvaluator(callerVariables)));
             }
             if (param.variable.type === '#' && !param.variable.negated) {
                 const expression =

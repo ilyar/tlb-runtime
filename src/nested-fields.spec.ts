@@ -4,6 +4,27 @@ import { runtimeBy, parseTLB, TLBDataError } from './index';
 import { TLBLib, TLBStd } from './tesdata';
 
 describe('variable-width numeric type arguments', () => {
+    it('reads Box (Maybe (uint n)) when only Outer declares n', () => {
+        const runtime = runtimeBy(TLBStd.Maybe + '_ {X:Type} v:X = Box X; _ n:uint4 p:(Box (Maybe (uint n))) = Outer;');
+        const wire = beginCell().storeUint(3, 4).storeBit(true).storeUint(6, 3).endCell();
+        const data = { kind: 'Outer', n: 3, p: { kind: 'Box', v: { kind: 'Maybe_just', value: 6 } } };
+        expect(runtime.decodeCell(wire, { rootType: 'Outer', exact: true })).toEqual(data);
+        expect(runtime.encodeCell(data).equals(wire)).toBe(true);
+    });
+
+    it.each([
+        ['Maybe (uint n)', 3],
+        ['Maybe (uint (n + 1))', 4],
+    ] as const)('binds the outer width in Box (%s)', (argument, width) => {
+        const runtime = runtimeBy(
+            TLBStd.Maybe + `_ {X:Type} n:uint4 v:X = Box X; _ n:uint4 p:(Box (${argument})) = Outer;`,
+        );
+        const wire = beginCell().storeUint(3, 4).storeUint(1, 4).storeBit(true).storeUint(6, width).endCell();
+        const data = { kind: 'Outer', n: 3, p: { kind: 'Box', n: 1, v: { kind: 'Maybe_just', value: 6 } } };
+        expect(runtime.decodeCell(wire, { rootType: 'Outer', exact: true })).toEqual(data);
+        expect(runtime.encodeCell(data).equals(wire)).toBe(true);
+    });
+
     it.each(['##', 'uint', 'int'])('reads Maybe (%s n) with the width in the enclosing cell', (type) => {
         const r = runtimeBy(TLBStd.Maybe + `_ n:uint4 field:(Maybe (${type} n)) = Root;`);
         const cell = beginCell().storeUint(3, 4).storeBit(true).storeUint(6, 3).endCell();
