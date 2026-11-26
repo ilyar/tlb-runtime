@@ -47,6 +47,25 @@ if (unpack.success) {
 // { unpack: { kind: 'Foo', x: 42 } }
 ```
 
+### Export types for an editor or application
+
+```typescript
+import '@ton-community/tlb-runtime/type-export.js';
+import { runtimeBy } from '@ton-community/tlb-runtime';
+
+const runtime = runtimeBy(schema);
+const editorSchema = runtime.toJSONSchema({ rootType: 'Share', title: 'Share link' });
+const declarations = runtime.toTypeScript({ rootType: 'Share' });
+```
+
+The optional `type-export.js` entry installs the export methods. Import it in the build script or application module that generates types. Applications using the main entry alone bundle only the codec and its existing dependencies.
+
+Give `editorSchema` to a Draft-07 validator or JSON editor. Save `declarations` as a TypeScript file and import its types in the application. Both exports follow the selected root and specialize parameterized fields such as `Either Boc Data`. Use `args: [8]` for a numeric root parameter. With no root option, the JSON schema selects the last declared type and keeps the other exported definitions available.
+
+TypeScript describes decoded values, including native `Cell`, `Dictionary`, and `BitString` objects. The JSON schema describes editor values. A cell is a Base64 BoC string in JSON and needs conversion to a live `Cell` for encoding. A dictionary uses an object with decimal keys and entry values, which the encoder accepts. Convert decoded dictionary entries explicitly with `Object.fromEntries(dictionary)` before serializing. Use decimal strings to preserve large integers.
+
+JSON Schema validates the object structure and static bounds. The runtime checks constraints that depend on field values during encoding or decoding. Unbound field types appear as `unknown` in TypeScript and accept any JSON value. Export throws `TLBSchemaError` if expansion exceeds 512 definitions, 32 nested instantiations, or 4096 characters in an expanded TL-B type name.
+
 ## TEP-74 Fungible tokens (Jettons)
 
 ```typescript

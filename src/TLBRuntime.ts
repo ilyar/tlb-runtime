@@ -164,13 +164,14 @@ export class TLBRuntime<T = ParsedCell> {
     private readonly tagMap = new Map<string, { type: TLBType; item: TLBConstructor }>();
     private maxSizeTag = 0;
     private readonly typeMap: ReadonlyMap<string, TLBType>;
-    private readonly lastTypeName?: string;
+    /** Last result type declared by the schema compiler. */
+    readonly lastTypeName?: string;
     private readonly resultArgs = new WeakMap<object, (number | undefined)[]>();
     private recursionDepth = 0;
     private readonly MAX_RECURSION_DEPTH = 100; // Limit to prevent infinite recursion
     private constructor(
         readonly schema: string,
-        private readonly config: Partial<TLBRuntimeConfig> = {},
+        readonly config: Readonly<Partial<TLBRuntimeConfig>> = {},
         private readonly compileSchema = (code: string) => {
             const schema = unwrap(Schema.from(code));
             return { types: schema.getTLBTypes(), lastTypeName: schema.lastTypeName };
@@ -184,7 +185,7 @@ export class TLBRuntime<T = ParsedCell> {
         const compiled = compileSchema(schema);
         this.typeMap = compiled.types;
         this.lastTypeName = compiled.lastTypeName;
-        config.autoText = config.autoText ?? true;
+        (config as Partial<TLBRuntimeConfig>).autoText = config.autoText ?? true;
         for (const type of this.typeMap.values()) {
             for (const item of type.constructors) {
                 if (item.tag.bitLen > 0) {
