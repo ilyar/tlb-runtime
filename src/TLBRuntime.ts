@@ -145,7 +145,9 @@ function tagKey(tag: TLBConstructorTag): string {
 }
 
 export interface DecodeCellOptions {
-    rootType: string;
+    rootType?: string;
+    /** Require the selected constructor to consume every bit and reference in the root cell. */
+    exact?: boolean;
     /** Numeric TL-B arguments in result-type order, e.g. [4] for "Tree 4". */
     args?: readonly number[];
 }
@@ -236,20 +238,7 @@ export class TLBRuntime<T = ParsedCell> {
     }
 
     decodeCell(data: CellInput, options?: DecodeCellOptions): DecodedRoot<T> {
-        if (options) {
-            const type = this.typeMap.get(options.rootType);
-            if (!type) throw new TLBDataError(`Unknown root type: ${options.rootType}`);
-            const args = (options.args ?? []).map((n): TLBFieldType => {
-                if (!Number.isSafeInteger(n) || n < 0) throw new TLBDataError('Expected a natural number argument');
-                return { kind: 'TLBExprMathType', initialExpr: { kind: 'TLBNumberExpr', n } };
-            });
-            if (!type.constructors.some((c) => c.parameters.length >= args.length)) {
-                throw new TLBDataError(`Too many arguments for ${type.name}`);
-            }
-            const cell = unwrap(toCell(data));
-            return unwrap(this.deserializeType(type, cell.beginParse(), args)) as DecodedRoot<T>;
-        }
-        return unwrap(this.deserialize(data)) as DecodedRoot<T>;
+        return unwrap(this.deserialize(data, options)) as DecodedRoot<T>;
     }
 
     /** @deprecated Use decodeCell instead. */
@@ -284,10 +273,27 @@ export class TLBRuntime<T = ParsedCell> {
         return null;
     }
 
-    deserialize(data: CellInput, findByTag = false): Result<T> {
+    deserialize(data: CellInput, options: boolean | DecodeCellOptions = false): Result<T> {
         const parsed = toCell(data);
         if (!parsed.success) return parsed;
         const slice = parsed.value.asSlice();
+        const findByTag = options === true;
+        const { rootType, args, exact = false } = typeof options === 'boolean' ? {} : options;
+        if (rootType !== undefined) {
+            const type = this.typeMap.get(rootType);
+            if (!type) return { success: false, error: new TLBDataError(`Unknown root type: ${rootType}`) };
+            if (args?.some((n) => !Number.isSafeInteger(n) || n < 0))
+                return { success: false, error: new TLBDataError('Expected a natural number argument') };
+            const bindings: TLBFieldType[] = (args ?? []).map((n) => ({
+                kind: 'TLBExprMathType',
+                initialExpr: { kind: 'TLBNumberExpr', n },
+            }));
+            if (!type.constructors.some((c) => c.parameters.length >= bindings.length))
+                return { success: false, error: new TLBDataError(`Too many arguments for ${type.name}`) };
+            return this.deserializeType(type, slice, bindings, undefined, undefined, exact);
+        }
+        if (args !== undefined)
+            return { success: false, error: new TLBDataError('Numeric arguments require a root type') };
         if (findByTag) {
             const find = this.findByTag(slice);
             if (find) {
@@ -295,31 +301,18 @@ export class TLBRuntime<T = ParsedCell> {
             }
         }
 
-        if (this.lastTypeName) {
-            try {
-                const result = this.deserializeByTypeName(this.lastTypeName, slice.clone());
-                if (result.success) {
-                    return result;
-                }
-            } catch (error) {
-                if (error instanceof Error) {
-                    throw error;
-                } else {
-                    throw new TLBDataError('Failed to deserialize');
-                }
-            }
+        const names = new Set([this.lastTypeName, ...Array.from(this.typeMap.keys()).reverse()]);
+        for (const name of names) {
+            if (name === undefined) continue;
+            const type = this.typeMap.get(name);
+            if (!type) continue;
+            const result = this.deserializeType(type, slice.clone(), [], undefined, undefined, exact);
+            if (result.success) return result;
         }
-
-        const types = Array.from(this.typeMap.keys());
-        for (const typeName of types.slice().reverse()) {
-            if (typeName === this.lastTypeName) continue; // Already tried
-            const result = this.deserializeByTypeName(typeName, slice.clone());
-            if (result.success) {
-                return result;
-            }
-        }
-
-        return { success: false, error: new TLBDataError('No matching constructor') };
+        return {
+            success: false,
+            error: new TLBDataError(exact ? 'No root type consumed the entire cell' : 'No matching constructor'),
+        };
     }
 
     // Deserialize data from a Slice based on a TL-B type name
@@ -370,6 +363,7 @@ export class TLBRuntime<T = ParsedCell> {
         args: TLBFieldType[] = [],
         initialVariables?: Map<string, number>,
         context?: ParameterContext,
+        exact = false,
     ): Result<T> {
         // Track recursion depth to prevent stack overflow
         this.recursionDepth++;
@@ -384,7 +378,7 @@ export class TLBRuntime<T = ParsedCell> {
                 };
             }
 
-            return this._deserializeType(type, data, args, initialVariables, context);
+            return this._deserializeType(type, data, args, initialVariables, context, exact);
         } finally {
             this.recursionDepth--;
         }
@@ -396,6 +390,7 @@ export class TLBRuntime<T = ParsedCell> {
         args: TLBFieldType[] = [],
         initialVariables?: Map<string, number>,
         context?: ParameterContext,
+        exact = false,
     ): Result<T> {
         // If type has implicit parameters and we have type arguments,
         // build a context from type arguments before trying constructors
@@ -448,6 +443,7 @@ export class TLBRuntime<T = ParsedCell> {
         const constructorsToTry = hasTagless ? type.constructors.slice().reverse() : type.constructors;
         const matchTags = !hasTagless && type.constructors.length > 1;
 
+        let partialMatch: TLBDataError | undefined;
         let lastError: Error | undefined;
         for (const constructor of constructorsToTry) {
             if (matchTags) {
@@ -458,6 +454,12 @@ export class TLBRuntime<T = ParsedCell> {
                 const prev = data.clone();
                 const result = this.deserializeConstructor(type, constructor, prev, args, initialVariables, context);
                 if (result.success) {
+                    if (exact && (prev.remainingBits || prev.remainingRefs)) {
+                        partialMatch = new TLBDataError(
+                            `${type.name}: ${prev.remainingBits} bits and ${prev.remainingRefs} refs remaining`,
+                        );
+                        continue;
+                    }
                     const bitsUsed = data.remainingBits - prev.remainingBits;
                     const refsUsed = data.remainingRefs - prev.remainingRefs;
 
@@ -484,7 +486,9 @@ export class TLBRuntime<T = ParsedCell> {
         return {
             success: false,
             error:
-                lastError ?? new TLBDataError(`Failed to deserialize type ${type.name}: no matching constructor found`),
+                partialMatch ??
+                lastError ??
+                new TLBDataError(`Failed to deserialize type ${type.name}: no matching constructor found`),
         };
     }
 
