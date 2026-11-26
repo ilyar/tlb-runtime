@@ -1903,7 +1903,11 @@ export class Schema {
                             variableName: paramNameMap?.get(arg.value) ?? `_${arg.value + 1}`,
                         };
                     }
-                    if (arg.tp === TypeExprType.Param && arg.isNat && !arg.negated) {
+                    if (
+                        (arg.tp === TypeExprType.Param || arg.tp === TypeExprType.MulConst) &&
+                        arg.isNat &&
+                        !arg.negated
+                    ) {
                         return { kind: 'TLBExprMathType', initialExpr: this.typeExprToTLBMathExpr(arg, paramNameMap) };
                     }
                     return this.typeExprToTLBFieldType(arg, paramNameMap);
