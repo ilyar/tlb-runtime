@@ -1326,7 +1326,7 @@ export class Schema {
         }
 
         // Default: unknown
-        return new TypeExpr(TypeExprType.Type);
+        return new TypeExpr(TypeExprType.Type, null, [], 'name' in expr ? symbolMap.lookupAdd(expr.name) : 0);
     }
 
     /**
@@ -2110,6 +2110,8 @@ export class Schema {
                 }
                 return { kind: 'TLBNumberExpr', n: 0 };
             }
+            case TypeExprType.Type:
+                throw new Error('Unknown numeric identifier ' + (symbolMap.getName(expr.value) || '?'));
             default:
                 return { kind: 'TLBNumberExpr', n: 0 };
         }
