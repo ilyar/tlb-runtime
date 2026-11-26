@@ -1,10 +1,16 @@
 // Interpreter to evaluate TLBMathExpr at runtime
 import { TLBMathExpr } from './types';
 
-export class MathExprEvaluator {
-    private variables: Map<string, number>;
+export function safeExpressionNumber(result: bigint | number): number {
+    const value = Number(result);
+    if (!Number.isSafeInteger(value)) throw new Error('Expression result exceeds the safe integer range');
+    return value;
+}
 
-    constructor(variables: Map<string, number> = new Map()) {
+export class MathExprEvaluator {
+    private variables: ReadonlyMap<string, number | bigint>;
+
+    constructor(variables: ReadonlyMap<string, number | bigint> = new Map()) {
         this.variables = variables;
     }
 
@@ -23,8 +29,13 @@ export class MathExprEvaluator {
     }
 
     evaluate(expr: TLBMathExpr): number {
+        const result = this.evaluateInteger(expr);
+        return safeExpressionNumber(result);
+    }
+
+    private evaluateInteger(expr: TLBMathExpr): bigint {
         if (expr.kind === 'TLBNumberExpr') {
-            return expr.n;
+            return BigInt(expr.n);
         }
 
         if (expr.kind === 'TLBVarExpr') {
@@ -32,12 +43,12 @@ export class MathExprEvaluator {
             if (value === undefined) {
                 throw new Error(`Variable ${expr.x} is not defined`);
             }
-            return value;
+            return BigInt(value);
         }
 
         if (expr.kind === 'TLBBinaryOp') {
-            const left = this.evaluate(expr.left);
-            const right = this.evaluate(expr.right);
+            const left = this.evaluateInteger(expr.left);
+            const right = this.evaluateInteger(expr.right);
             switch (expr.operation) {
                 case '+':
                     return left + right;
@@ -46,13 +57,13 @@ export class MathExprEvaluator {
                 case '*':
                     return left * right;
                 case '/':
-                    return Math.floor(left / right);
+                    return left / right - (left % right !== 0n && left < 0n !== right < 0n ? 1n : 0n);
                 case '%':
                     return left % right;
                 case '<<':
                     return left << right;
                 case '.':
-                    return Math.floor(left / 2 ** right) % 2;
+                    return (left >> right) & 1n;
                 case '>>':
                     return left >> right;
                 case '&':
@@ -62,35 +73,37 @@ export class MathExprEvaluator {
                 case '^':
                     return left ^ right;
                 case '==':
-                    return left === right ? 1 : 0;
+                    return left === right ? 1n : 0n;
                 case '!=':
-                    return left !== right ? 1 : 0;
+                    return left !== right ? 1n : 0n;
                 case '<':
-                    return left < right ? 1 : 0;
+                    return left < right ? 1n : 0n;
                 case '<=':
-                    return left <= right ? 1 : 0;
+                    return left <= right ? 1n : 0n;
                 case '>':
-                    return left > right ? 1 : 0;
+                    return left > right ? 1n : 0n;
                 case '>=':
-                    return left >= right ? 1 : 0;
+                    return left >= right ? 1n : 0n;
                 case '=':
-                    return left === right ? 1 : 0;
+                    return left === right ? 1n : 0n;
             }
         }
 
         if (expr.kind === 'TLBUnaryOp') {
             const operation = expr.operation;
             switch (operation) {
-                case '.':
-                    return MathExprEvaluator.calculateBitsForLessThanOrEqual(this.evaluate(expr.value));
+                case '.': {
+                    const value = this.evaluateInteger(expr.value);
+                    return value > 0n ? BigInt(value.toString(2).length) : 0n;
+                }
                 case '-':
-                    return -this.evaluate(expr.value);
+                    return -this.evaluateInteger(expr.value);
                 case '~':
                     // In TL-B, ~n means 'inferred/computed value of n'.
                     // Always return the inner value directly.
-                    return this.evaluate(expr.value);
+                    return this.evaluateInteger(expr.value);
                 case '!':
-                    return this.evaluate(expr.value) ? 0 : 1;
+                    return this.evaluateInteger(expr.value) ? 0n : 1n;
                 default:
                     throw new Error(`Unknown unary operation: ${operation}`);
             }

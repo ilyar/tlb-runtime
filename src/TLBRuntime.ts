@@ -16,7 +16,7 @@ import { compileLegacySchema } from './legacySchema';
 import { Schema } from './schema';
 import { readSnakeString, writeSnakeString } from './snake-string';
 import { type CellInput, decodeBits, stringToBits, toCell } from './common';
-import { MathExprEvaluator } from './MathExprEvaluator';
+import { MathExprEvaluator, safeExpressionNumber } from './MathExprEvaluator';
 import { Result, unwrap } from './Result';
 import { TLBRuntimeError, TLBSchemaError, TLBDataError } from './errors';
 import {
@@ -389,7 +389,7 @@ export class TLBRuntime<T = ParsedCell> {
         type: TLBType,
         data: Slice,
         args: TLBFieldType[] = [],
-        initialVariables?: Map<string, number>,
+        initialVariables?: Map<string, number | bigint>,
         context?: ParameterContext,
         exact = false,
     ): Result<T> {
@@ -416,7 +416,7 @@ export class TLBRuntime<T = ParsedCell> {
         type: TLBType,
         data: Slice,
         args: TLBFieldType[] = [],
-        initialVariables?: Map<string, number>,
+        initialVariables?: Map<string, number | bigint>,
         context?: ParameterContext,
         exact = false,
     ): Result<T> {
@@ -525,7 +525,7 @@ export class TLBRuntime<T = ParsedCell> {
         constructor: TLBConstructor,
         slice: Slice,
         args: TLBFieldType[] = [],
-        initialVariables?: Map<string, number>,
+        initialVariables?: Map<string, number | bigint>,
         context?: ParameterContext,
     ): Result<T> {
         const kind = type.constructors.length > 1 ? `${type.name}_${constructor.name}` : type.name;
@@ -565,7 +565,7 @@ export class TLBRuntime<T = ParsedCell> {
         }
 
         // Initialize variables map for constraint evaluation
-        const variables = new Map<string, number>(initialVariables);
+        const variables = new Map<string, number | bigint>(initialVariables);
 
         // US-004: Build context from constructor parameters for parameter substitution
         // Create context chain: parent context is passed in, child context is built from constructor parameters
@@ -593,7 +593,8 @@ export class TLBRuntime<T = ParsedCell> {
                         natValue = paramEvaluator.evaluate(arg.bits);
                     } else if (arg.kind === 'TLBNamedType') {
                         // Parameter reference
-                        natValue = variables.get(arg.name) ?? context?.resolveNat(arg.name);
+                        const value = variables.get(arg.name) ?? context?.resolveNat(arg.name);
+                        natValue = value === undefined ? undefined : safeExpressionNumber(value);
                     }
                     if (typeof natValue === 'number' && param.variable.name) {
                         childContext.setNat(param.variable.name, natValue);
@@ -636,7 +637,7 @@ export class TLBRuntime<T = ParsedCell> {
                     (p) => p.variable?.name === v.name && p.variable.type === '#',
                 );
                 if (!isImplicitParam) {
-                    // Initialize as undefined (using any cast since Map<string, number> doesn't like undefined)
+                    // Initialize as undefined (using any cast since Map<string, number | bigint> doesn't like undefined)
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     (variables as any).set(v.name, undefined);
                 }
@@ -859,7 +860,7 @@ export class TLBRuntime<T = ParsedCell> {
                             error: new TLBDataError(`Variable ${bitsExpr} not found for anonymous field`),
                         };
                     }
-                    bits = bitsValue;
+                    bits = safeExpressionNumber(bitsValue);
                 }
 
                 if (slice.remainingBits >= bits) {
@@ -919,7 +920,7 @@ export class TLBRuntime<T = ParsedCell> {
                             };
                         }
                     }
-                    bits = bitsValue;
+                    bits = safeExpressionNumber(bitsValue);
                 }
 
                 if (slice.remainingBits >= bits) {
@@ -955,7 +956,7 @@ export class TLBRuntime<T = ParsedCell> {
                             error: new TLBDataError(`Variable ${nExpr} not found for field ${fieldName}`),
                         };
                     }
-                    n = nValue;
+                    n = safeExpressionNumber(nValue);
                 }
 
                 // Calculate bit width
@@ -993,7 +994,7 @@ export class TLBRuntime<T = ParsedCell> {
                         value[fieldName] = Number(fieldValue);
                     }
                     if (bits <= 53) {
-                        variables.set(fieldName, Number(fieldValue));
+                        variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                     }
                 } else {
                     return {
@@ -1015,7 +1016,7 @@ export class TLBRuntime<T = ParsedCell> {
                     } else {
                         value[fieldName] = Number(fieldValue);
                     }
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 } else {
                     return {
                         success: false,
@@ -1070,10 +1071,10 @@ export class TLBRuntime<T = ParsedCell> {
                                             ),
                                         };
                                     }
-                                    if (op === '+') result += varValue;
-                                    else if (op === '-') result -= varValue;
-                                    else if (op === '*') result *= varValue;
-                                    else if (op === '/') result = Math.floor(result / varValue);
+                                    if (op === '+') result += safeExpressionNumber(varValue);
+                                    else if (op === '-') result -= safeExpressionNumber(varValue);
+                                    else if (op === '*') result *= safeExpressionNumber(varValue);
+                                    else if (op === '/') result = Math.floor(result / safeExpressionNumber(varValue));
                                 }
                             }
                             bits = result;
@@ -1086,7 +1087,7 @@ export class TLBRuntime<T = ParsedCell> {
                                     error: new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`),
                                 };
                             }
-                            bits = varValue;
+                            bits = safeExpressionNumber(varValue);
                         }
                     } catch (_error) {
                         return {
@@ -1106,7 +1107,7 @@ export class TLBRuntime<T = ParsedCell> {
                     } else {
                         value[fieldName] = Number(fieldValue);
                     }
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 } else {
                     return {
                         success: false,
@@ -1161,10 +1162,10 @@ export class TLBRuntime<T = ParsedCell> {
                                             ),
                                         };
                                     }
-                                    if (op === '+') result += varValue;
-                                    else if (op === '-') result -= varValue;
-                                    else if (op === '*') result *= varValue;
-                                    else if (op === '/') result = Math.floor(result / varValue);
+                                    if (op === '+') result += safeExpressionNumber(varValue);
+                                    else if (op === '-') result -= safeExpressionNumber(varValue);
+                                    else if (op === '*') result *= safeExpressionNumber(varValue);
+                                    else if (op === '/') result = Math.floor(result / safeExpressionNumber(varValue));
                                 }
                             }
                             bits = result;
@@ -1177,7 +1178,7 @@ export class TLBRuntime<T = ParsedCell> {
                                     error: new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`),
                                 };
                             }
-                            bits = varValue;
+                            bits = safeExpressionNumber(varValue);
                         }
                     } catch (_error) {
                         return {
@@ -1197,7 +1198,7 @@ export class TLBRuntime<T = ParsedCell> {
                     } else {
                         value[fieldName] = Number(fieldValue);
                     }
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 } else {
                     return {
                         success: false,
@@ -1271,10 +1272,10 @@ export class TLBRuntime<T = ParsedCell> {
                                             ),
                                         };
                                     }
-                                    if (op === '+') result += varValue;
-                                    else if (op === '-') result -= varValue;
-                                    else if (op === '*') result *= varValue;
-                                    else if (op === '/') result = Math.floor(result / varValue);
+                                    if (op === '+') result += safeExpressionNumber(varValue);
+                                    else if (op === '-') result -= safeExpressionNumber(varValue);
+                                    else if (op === '*') result *= safeExpressionNumber(varValue);
+                                    else if (op === '/') result = Math.floor(result / safeExpressionNumber(varValue));
                                 }
                             }
                             bits = result;
@@ -1287,7 +1288,7 @@ export class TLBRuntime<T = ParsedCell> {
                                     error: new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`),
                                 };
                             }
-                            bits = varValue;
+                            bits = safeExpressionNumber(varValue);
                         }
                     } catch (_error) {
                         return {
@@ -1357,10 +1358,10 @@ export class TLBRuntime<T = ParsedCell> {
                                             ),
                                         };
                                     }
-                                    if (op === '+') result += varValue;
-                                    else if (op === '-') result -= varValue;
-                                    else if (op === '*') result *= varValue;
-                                    else if (op === '/') result = Math.floor(result / varValue);
+                                    if (op === '+') result += safeExpressionNumber(varValue);
+                                    else if (op === '-') result -= safeExpressionNumber(varValue);
+                                    else if (op === '*') result *= safeExpressionNumber(varValue);
+                                    else if (op === '/') result = Math.floor(result / safeExpressionNumber(varValue));
                                 }
                             }
                             bits = result;
@@ -1373,7 +1374,7 @@ export class TLBRuntime<T = ParsedCell> {
                                     error: new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`),
                                 };
                             }
-                            bits = varValue;
+                            bits = safeExpressionNumber(varValue);
                         }
                     } catch (_error) {
                         return {
@@ -1391,7 +1392,7 @@ export class TLBRuntime<T = ParsedCell> {
                     if (bits > maxBits) {
                         value[fieldName] = fieldValue;
                         if (bits <= 53) {
-                            variables.set(fieldName, Number(fieldValue));
+                            variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                         }
                     } else {
                         const numValue = Number(fieldValue);
@@ -1883,12 +1884,12 @@ export class TLBRuntime<T = ParsedCell> {
                         const type = this.typeMap.get(subfield.fieldType.name);
                         if (type) {
                             // Seed nested variables from type arguments where possible
-                            let initialSeed: Map<string, number> | undefined;
+                            let initialSeed: Map<string, number | bigint> | undefined;
                             if (type.constructors.length > 0) {
                                 const nestedCtor = type.constructors[0];
                                 const evaluator = new MathExprEvaluator(variables);
                                 const forwardedArgs = subfield.fieldType.arguments ?? [];
-                                const merged = new Map<string, number>(variables);
+                                const merged = new Map<string, number | bigint>(variables);
                                 if (nestedCtor.parameters.length > 0) {
                                     for (
                                         let i = 0;
@@ -2104,7 +2105,7 @@ export class TLBRuntime<T = ParsedCell> {
 
         // Check constraints and compute implicit values
         const evaluator = new MathExprEvaluator(variables);
-        const computedImplicitValues = new Map<string, number>();
+        const computedImplicitValues = new Map<string, number | bigint>();
 
         for (const constraint of constructor.constraints) {
             try {
@@ -2271,7 +2272,7 @@ export class TLBRuntime<T = ParsedCell> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: any,
         builder: Builder,
-        variables: Map<string, number>,
+        variables: Map<string, number | bigint>,
     ): Result<void> {
         // Parse fields from the string, handling nested inline cell references
         let remaining = fieldsStr.trim();
@@ -2334,7 +2335,7 @@ export class TLBRuntime<T = ParsedCell> {
                 const fieldValue = data[fieldName];
                 if (fieldValue !== undefined) {
                     builder.storeUint(fieldValue, 32);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
                 remaining = remaining.substring(hashFieldMatch[0].length).trim();
                 continue;
@@ -2359,11 +2360,11 @@ export class TLBRuntime<T = ParsedCell> {
                                 error: new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`),
                             };
                         }
-                        bits = bitsValue;
+                        bits = safeExpressionNumber(bitsValue);
                     }
 
                     builder.storeUint(fieldValue, bits);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
                 remaining = remaining.substring(limitNatMatch[0].length).trim();
                 continue;
@@ -2391,7 +2392,7 @@ export class TLBRuntime<T = ParsedCell> {
     private deserializeInlineCell(
         fieldsStr: string,
         slice: Slice,
-        variables: Map<string, number>,
+        variables: Map<string, number | bigint>,
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ): Result<any> {
@@ -2487,7 +2488,7 @@ export class TLBRuntime<T = ParsedCell> {
                             error: new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`),
                         };
                     }
-                    bits = bitsValue;
+                    bits = safeExpressionNumber(bitsValue);
                 }
 
                 if (slice.remainingBits < bits) {
@@ -2520,7 +2521,7 @@ export class TLBRuntime<T = ParsedCell> {
     private deserializeField(
         field: TLBField,
         slice: Slice,
-        variables: Map<string, number>,
+        variables: Map<string, number | bigint>,
         ctxConstructor: TLBConstructor,
         ctxArgs: TLBFieldType[],
         context?: ParameterContext,
@@ -2534,7 +2535,7 @@ export class TLBRuntime<T = ParsedCell> {
                 field.fieldType.kind === 'TLBVarIntegerType' ||
                 field.fieldType.kind === 'TLBBoolType')
         ) {
-            const numericValue = Number(value);
+            const numericValue = typeof value === 'bigint' ? value : Number(value);
             variables.set(field.name, numericValue);
 
             // Update positional alias if possible
@@ -2589,7 +2590,7 @@ export class TLBRuntime<T = ParsedCell> {
         keySize: number,
         valueType: TLBFieldType,
         direct: boolean,
-        variables: Map<string, number>,
+        variables: Map<string, number | bigint>,
         ctxConstructor: TLBConstructor,
         ctxArgs: TLBFieldType[],
         context?: ParameterContext,
@@ -2613,7 +2614,7 @@ export class TLBRuntime<T = ParsedCell> {
     private deserializeFieldType(
         fieldType: TLBFieldType,
         slice: Slice,
-        variables: Map<string, number>,
+        variables: Map<string, number | bigint>,
         ctxConstructor: TLBConstructor,
         ctxArgs: TLBFieldType[],
         context?: ParameterContext,
@@ -2841,7 +2842,7 @@ export class TLBRuntime<T = ParsedCell> {
                                 `Variable ${keySizeArg.name} not found for HashmapE key size argument`,
                             );
                         }
-                        keySize = varValue;
+                        keySize = safeExpressionNumber(varValue);
                     } else {
                         throw new TLBDataError(
                             'HashmapE first argument must be a numeric expression or parameter reference',
@@ -2879,7 +2880,7 @@ export class TLBRuntime<T = ParsedCell> {
                         if (varValue === undefined) {
                             throw new TLBDataError(`Variable ${arg.name} not found for ${fieldType.name} argument`);
                         }
-                        n = varValue;
+                        n = safeExpressionNumber(varValue);
                     } else {
                         throw new TLBDataError(`Invalid argument type for ${fieldType.name}`);
                     }
@@ -2999,7 +3000,7 @@ export class TLBRuntime<T = ParsedCell> {
 
                         return context ? this.bindTypeParameters(arg, context.getAllTypeParams()) : arg;
                     });
-                const childVars = new Map<string, number>();
+                const childVars = new Map<string, number | bigint>();
                 const parentEvaluator = new MathExprEvaluator(variables);
                 // Track which parameters are negated (need to propagate computed values back)
                 // Map from nested parameter name to parent variable name
@@ -3324,7 +3325,7 @@ export class TLBRuntime<T = ParsedCell> {
         data: any, // eslint-disable-line @typescript-eslint/no-explicit-any
         builder: Builder,
         args: TLBFieldType[] = [],
-        callerVariables = new Map<string, number>(),
+        callerVariables = new Map<string, number | bigint>(),
     ): void {
         // Find matching constructor by kind
         const typeKind = (data as TypeCell).kind;
@@ -3369,7 +3370,7 @@ export class TLBRuntime<T = ParsedCell> {
         }
 
         // Initialize variables map for constraint evaluation and add positional aliases
-        const variables = new Map<string, number>();
+        const variables = new Map<string, number | bigint>();
 
         const resultArguments: { expression: _TLBMathExpr; expected: number }[] = [];
         const typeParams = new Map<string, TLBFieldType>();
@@ -3582,12 +3583,12 @@ export class TLBRuntime<T = ParsedCell> {
                         if (bitsValue === undefined) {
                             throw new TLBDataError(`Variable ${bitsExpr} not found for anonymous field`);
                         }
-                        bits = bitsValue;
+                        bits = safeExpressionNumber(bitsValue);
                     }
 
                     // Serialize as n-bit number
                     builder.storeUint(fieldValue, bits);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
             }
 
@@ -3599,7 +3600,7 @@ export class TLBRuntime<T = ParsedCell> {
                 if (fieldValue !== undefined) {
                     // Serialize as 32-bit number (type #)
                     builder.storeUint(fieldValue, 32);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
             }
 
@@ -3622,12 +3623,12 @@ export class TLBRuntime<T = ParsedCell> {
                         if (bitsValue === undefined) {
                             throw new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`);
                         }
-                        bits = bitsValue;
+                        bits = safeExpressionNumber(bitsValue);
                     }
 
                     // Serialize as n-bit number
                     builder.storeUint(fieldValue, bits);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
             }
 
@@ -3651,7 +3652,7 @@ export class TLBRuntime<T = ParsedCell> {
                         if (nValue === undefined) {
                             throw new TLBDataError(`Variable ${nExpr} not found for field ${fieldName}`);
                         }
-                        n = nValue;
+                        n = safeExpressionNumber(nValue);
                     }
 
                     // Calculate bit width
@@ -3664,7 +3665,7 @@ export class TLBRuntime<T = ParsedCell> {
 
                     // Serialize value using that many bits
                     builder.storeUint(fieldValue, bits);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
             }
 
@@ -3679,7 +3680,7 @@ export class TLBRuntime<T = ParsedCell> {
                 if (fieldValue !== undefined) {
                     // Serialize as signed integer with specified bits
                     builder.storeInt(fieldValue, bits);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
             }
 
@@ -3692,7 +3693,7 @@ export class TLBRuntime<T = ParsedCell> {
                 if (fieldValue !== undefined) {
                     // Serialize as unsigned integer with specified bits
                     builder.storeUint(fieldValue, bits);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
             }
 
@@ -3742,10 +3743,11 @@ export class TLBRuntime<T = ParsedCell> {
                                                 `Variable ${trimmed} not found for field ${fieldName}`,
                                             );
                                         }
-                                        if (op === '+') result += varValue;
-                                        else if (op === '-') result -= varValue;
-                                        else if (op === '*') result *= varValue;
-                                        else if (op === '/') result = Math.floor(result / varValue);
+                                        if (op === '+') result += safeExpressionNumber(varValue);
+                                        else if (op === '-') result -= safeExpressionNumber(varValue);
+                                        else if (op === '*') result *= safeExpressionNumber(varValue);
+                                        else if (op === '/')
+                                            result = Math.floor(result / safeExpressionNumber(varValue));
                                     }
                                 }
                                 bits = result;
@@ -3755,7 +3757,7 @@ export class TLBRuntime<T = ParsedCell> {
                                 if (varValue === undefined) {
                                     throw new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`);
                                 }
-                                bits = varValue;
+                                bits = safeExpressionNumber(varValue);
                             }
                         } catch (_error) {
                             throw new TLBDataError(
@@ -3766,7 +3768,7 @@ export class TLBRuntime<T = ParsedCell> {
 
                     // Serialize as signed integer with calculated bits
                     builder.storeInt(fieldValue, bits);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
             }
 
@@ -3816,10 +3818,11 @@ export class TLBRuntime<T = ParsedCell> {
                                                 `Variable ${trimmed} not found for field ${fieldName}`,
                                             );
                                         }
-                                        if (op === '+') result += varValue;
-                                        else if (op === '-') result -= varValue;
-                                        else if (op === '*') result *= varValue;
-                                        else if (op === '/') result = Math.floor(result / varValue);
+                                        if (op === '+') result += safeExpressionNumber(varValue);
+                                        else if (op === '-') result -= safeExpressionNumber(varValue);
+                                        else if (op === '*') result *= safeExpressionNumber(varValue);
+                                        else if (op === '/')
+                                            result = Math.floor(result / safeExpressionNumber(varValue));
                                     }
                                 }
                                 bits = result;
@@ -3829,7 +3832,7 @@ export class TLBRuntime<T = ParsedCell> {
                                 if (varValue === undefined) {
                                     throw new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`);
                                 }
-                                bits = varValue;
+                                bits = safeExpressionNumber(varValue);
                             }
                         } catch (_error) {
                             throw new TLBDataError(
@@ -3840,7 +3843,7 @@ export class TLBRuntime<T = ParsedCell> {
 
                     // Serialize as unsigned integer with calculated bits
                     builder.storeUint(fieldValue, bits);
-                    variables.set(fieldName, Number(fieldValue));
+                    variables.set(fieldName, typeof fieldValue === 'bigint' ? fieldValue : Number(fieldValue));
                 }
             }
 
@@ -3913,10 +3916,11 @@ export class TLBRuntime<T = ParsedCell> {
                                                 `Variable ${trimmed} not found for field ${fieldName}`,
                                             );
                                         }
-                                        if (op === '+') result += varValue;
-                                        else if (op === '-') result -= varValue;
-                                        else if (op === '*') result *= varValue;
-                                        else if (op === '/') result = Math.floor(result / varValue);
+                                        if (op === '+') result += safeExpressionNumber(varValue);
+                                        else if (op === '-') result -= safeExpressionNumber(varValue);
+                                        else if (op === '*') result *= safeExpressionNumber(varValue);
+                                        else if (op === '/')
+                                            result = Math.floor(result / safeExpressionNumber(varValue));
                                     }
                                 }
                                 _bits = result;
@@ -3926,7 +3930,7 @@ export class TLBRuntime<T = ParsedCell> {
                                 if (varValue === undefined) {
                                     throw new TLBDataError(`Variable ${bitsExpr} not found for field ${fieldName}`);
                                 }
-                                _bits = varValue;
+                                _bits = safeExpressionNumber(varValue);
                             }
                         } catch (_error) {
                             throw new TLBDataError(
@@ -4263,16 +4267,19 @@ export class TLBRuntime<T = ParsedCell> {
         }
     }
 
-    // FIXME
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    private serializeField(field: TLBField, value: any, builder: Builder, variables: Map<string, number>): void {
+    private serializeField(
+        field: TLBField,
+        value: unknown,
+        builder: Builder,
+        variables: Map<string, number | bigint>,
+    ): void {
         if (
             field.name &&
             (field.fieldType.kind === 'TLBNumberType' ||
                 field.fieldType.kind === 'TLBVarIntegerType' ||
                 field.fieldType.kind === 'TLBBoolType')
         ) {
-            variables.set(field.name, Number(value));
+            variables.set(field.name, typeof value === 'bigint' ? value : Number(value));
         }
 
         this.serializeFieldType(field.fieldType, value, builder, variables);
@@ -4300,7 +4307,7 @@ export class TLBRuntime<T = ParsedCell> {
         direct: boolean,
         value: Dictionary<DictionaryKeyTypes, DecodedCell> | Record<string, DecodedCell> | undefined,
         builder: Builder,
-        variables: Map<string, number>,
+        variables: Map<string, number | bigint>,
     ): void {
         const dict = Dictionary.empty(Dictionary.Keys.BigUint(keySize), {
             serialize: (entry: DecodedCell, leaf: Builder) =>
@@ -4326,7 +4333,7 @@ export class TLBRuntime<T = ParsedCell> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         value: any,
         builder: Builder,
-        variables: Map<string, number>,
+        variables: Map<string, number | bigint>,
     ): void {
         const evaluator = new MathExprEvaluator(variables);
 
@@ -4467,7 +4474,7 @@ export class TLBRuntime<T = ParsedCell> {
                                 `Variable ${keySizeArg.name} not found for HashmapE key size argument`,
                             );
                         }
-                        keySize = varValue;
+                        keySize = safeExpressionNumber(varValue);
                     } else {
                         throw new TLBDataError(
                             'HashmapE first argument must be a numeric expression or parameter reference',
@@ -4500,7 +4507,7 @@ export class TLBRuntime<T = ParsedCell> {
                         if (varValue === undefined) {
                             throw new TLBDataError(`Variable ${arg.name} not found for ${fieldType.name} argument`);
                         }
-                        n = varValue;
+                        n = safeExpressionNumber(varValue);
                     } else {
                         throw new TLBDataError(`Invalid argument type for ${fieldType.name}`);
                     }
@@ -4543,7 +4550,7 @@ export class TLBRuntime<T = ParsedCell> {
                             const v = variables.get(nArg.name);
                             if (v === undefined)
                                 throw new TLBDataError(`Variable ${nArg.name} not found for VarUInteger`);
-                            n = v;
+                            n = safeExpressionNumber(v);
                         } else {
                             throw new TLBDataError('Invalid argument for VarUInteger');
                         }
@@ -4578,7 +4585,7 @@ export class TLBRuntime<T = ParsedCell> {
                             const v = variables.get(nArg.name);
                             if (v === undefined)
                                 throw new TLBDataError(`Variable ${nArg.name} not found for VarInteger`);
-                            n = v;
+                            n = safeExpressionNumber(v);
                         } else {
                             throw new TLBDataError('Invalid argument for VarInteger');
                         }
@@ -4731,7 +4738,7 @@ export class TLBRuntime<T = ParsedCell> {
 
     private solveEquality(
         expr: _TLBMathExpr,
-        variables: Map<string, number>,
+        variables: Map<string, number | bigint>,
         evaluator: MathExprEvaluator,
     ): { name: string; value: number } | null {
         if (expr.kind !== 'TLBBinaryOp' || expr.operation !== '=') return null;
