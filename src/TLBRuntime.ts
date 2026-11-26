@@ -160,6 +160,12 @@ function writeAddress(builder: Builder, value: Address | ExternalAddress | strin
     builder.storeAddress(address);
 }
 
+function loadRemainingCell(slice: Slice): Cell {
+    const builder = beginCell().storeBits(slice.loadBits(slice.remainingBits));
+    while (slice.remainingRefs) builder.storeRef(slice.loadRef());
+    return builder.endCell();
+}
+
 function tagKey(tag: TLBConstructorTag): string {
     return `0b${BigInt(tag.binary).toString(2).padStart(tag.bitLen, '0')}`;
 }
@@ -2808,16 +2814,7 @@ export class TLBRuntime<T = ParsedCell> {
                     return readSnakeString(slice, this.config.maxSnakeDepth);
                 }
                 if (fieldType.name === 'Any') {
-                    // Read remaining slice into a new cell
-                    const b = beginCell();
-                    const bitsLeft = slice.remainingBits;
-                    if (bitsLeft > 0) {
-                        b.storeBits(slice.loadBits(bitsLeft));
-                    }
-                    while (slice.remainingRefs > 0) {
-                        b.storeRef(slice.loadRef());
-                    }
-                    return b.endCell();
+                    return loadRemainingCell(slice);
                 }
 
                 // Handle HashmapE type: hme_empty$0 (empty dict) or hme_root$1 (load Hashmap from ref)
@@ -3199,13 +3196,8 @@ export class TLBRuntime<T = ParsedCell> {
             case 'TLBAddressType':
                 return readAddress(slice, fieldType.name);
 
-            case 'TLBCellType': {
-                // if (slice.remainingRefs === 0) {
-                //     throw new TLBDataError('No more references available for TLBCellType');
-                // }
-                // return slice.loadRef();
-                return slice.asCell();
-            }
+            case 'TLBCellType':
+                return loadRemainingCell(slice);
 
             case 'TLBCellInsideType': {
                 if (slice.remainingRefs === 0) {
@@ -4409,31 +4401,24 @@ export class TLBRuntime<T = ParsedCell> {
                         throw new TLBDataError('Maybe requires one argument: the inner type (X)');
                     }
 
-                    // Extract inner type (X) from first argument
-                    const innerType = args[0];
-
-                    // Check if value is nothing or just
-                    if (value && typeof value === 'object' && 'kind' in value) {
-                        if (value.kind === 'Maybe_nothing') {
-                            // nothing$0: write tag bit 0
-                            builder.storeBit(0);
-                        } else if (value.kind === 'Maybe_just' && 'value' in value) {
-                            // just$1: write tag bit 1, then serialize the value field
-                            builder.storeBit(1);
-                            this.serializeFieldType(innerType, value.value, builder, variables);
-                        } else {
-                            throw new TLBDataError(
-                                `Invalid Maybe value: expected Maybe_nothing or Maybe_just, got ${value.kind}`,
-                            );
-                        }
+                    const maybe = this.typeMap.get('Maybe');
+                    const kind = value?.kind;
+                    if (typeof kind === 'string' && maybe?.constructors.some((c) => kind === 'Maybe_' + c.name)) {
+                        this.serializeType(maybe, value, builder, args, variables);
                     } else {
-                        // If value is null/undefined, treat as nothing
-                        // Otherwise, treat as just with the value itself
-                        if (value === null || value === undefined) {
-                            builder.storeBit(0);
-                        } else {
-                            builder.storeBit(1);
-                            this.serializeFieldType(innerType, value, builder, variables);
+                        // The legacy compiler also accepts Maybe without constructor declarations.
+                        if (!maybe && kind === 'Maybe_nothing') {
+                            builder.storeBit(false);
+                            break;
+                        }
+                        if (!maybe && kind === 'Maybe_just' && !('value' in value)) {
+                            throw new TLBDataError('Missing value in Maybe_just');
+                        }
+                        const present = value !== null && value !== undefined;
+                        builder.storeBit(present);
+                        if (present) {
+                            const inner = !maybe && kind === 'Maybe_just' ? value.value : value;
+                            this.serializeFieldType(args[0], inner, builder, variables);
                         }
                     }
                     break;

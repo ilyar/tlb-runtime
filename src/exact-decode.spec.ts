@@ -27,3 +27,14 @@ it('checks only the root, preserves tie order and accepts numeric bindings', () 
     expect(unwrap(sized.deserialize(cell, { rootType: 'Sized', args: [8], exact: true }))).toMatchObject({ x: 42 });
     expect(() => sized.decodeCell(cell, { args: [] })).toThrow(TLBDataError);
 });
+
+it('consumes the bits and references of an inline Cell in exact mode', () => {
+    const runtime = runtimeBy('_ header:uint8 body:Cell = Msg;');
+    const body = beginCell().storeBit(1).storeRef(cell).endCell();
+    const msg = beginCell().storeUint(7, 8).storeSlice(body.beginParse()).endCell();
+    const options = { rootType: 'Msg', exact: true };
+    for (const decoded of [runtime.decodeCell(msg, options), unwrap(runtime.deserialize(msg, options))]) {
+        expect(decoded).toMatchObject({ kind: 'Msg', header: 7 });
+        expect(runtime.encodeCell(decoded).equals(msg)).toBe(true);
+    }
+});
