@@ -92,7 +92,11 @@ export function jsonSchema(graph: ResolvedTypeGraph, options: JSONSchemaOptions)
             case 'cell':
                 return { type: 'string', 'x-tlb-type': 'Cell', pattern: '^[A-Za-z0-9+/]+={0,2}$' };
             case 'address':
-                return { oneOf: [{ type: 'string' }, { type: 'null' }], 'x-tlb-type': 'MsgAddress' };
+                if (t.variant === 'int') return { type: 'string', 'x-tlb-type': 'MsgAddressInt' };
+                return {
+                    oneOf: [{ type: 'string' }, { type: 'null' }],
+                    'x-tlb-type': t.variant === 'ext' ? 'MsgAddressExt' : 'MsgAddress',
+                };
             case 'nullable':
                 return { oneOf: [field(t.inner), { type: 'null' }] };
             case 'dictionary':

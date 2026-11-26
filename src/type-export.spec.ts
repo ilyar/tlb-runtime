@@ -243,3 +243,16 @@ const tree: Tree = {kind:'Tree_node',next:{kind:'Tree_leaf',n:42n,b:'hi'}};
         ]);
     });
 });
+
+it('exports address variants and constructor choices accepted by the codec', () => {
+    const schema = TLBLib.MsgAddress + 'a$0 = Choice; b$1 = Choice; _ i:MsgAddressInt e:MsgAddressExt c:Choice = Root;';
+    const runtime = runtimeBy(schema);
+    const types = runtime.toTypeScript({ rootType: 'Root' });
+    expect(types).toContain('i: Address;');
+    expect(types).toContain('e: ExternalAddress | null;');
+    expect(types).toContain('Choice_a');
+    expect(types).toContain('Choice_b');
+    const fields = runtime.toJSONSchema({ rootType: 'Root' }).definitions!.Root.properties!;
+    expect(fields.i).toMatchObject({ type: 'string', 'x-tlb-type': 'MsgAddressInt' });
+    expect(fields.e.oneOf).toEqual([{ type: 'string' }, { type: 'null' }]);
+});

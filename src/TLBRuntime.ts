@@ -141,6 +141,25 @@ function canUseLegacyAnon0(leaf: TLBField, fields: TLBField[]): boolean {
     });
 }
 
+function readAddress(slice: Slice, name = 'MsgAddress') {
+    if (slice.remainingBits < 2) throw new TLBDataError('Not enough bits for ' + name + ': expected a 2-bit tag');
+    const tag = slice.preloadUint(2);
+    if ((name === 'MsgAddressInt' && tag < 2) || (name === 'MsgAddressExt' && tag >= 2)) {
+        throw new TLBDataError('Invalid address tag ' + tag + ' for ' + name);
+    }
+    if (tag === 3) throw new TLBDataError('addr_var is unsupported by TON Core');
+    return slice.loadAddressAny();
+}
+
+function writeAddress(builder: Builder, value: Address | ExternalAddress | string | null, name = 'MsgAddress') {
+    const address = typeof value === 'string' ? Address.parse(value) : value;
+    const internal = Address.isAddress(address);
+    if ((name === 'MsgAddressInt' && !internal) || (name === 'MsgAddressExt' && internal)) {
+        throw new TLBDataError('Invalid address value for ' + name);
+    }
+    builder.storeAddress(address);
+}
+
 function tagKey(tag: TLBConstructorTag): string {
     return `0b${BigInt(tag.binary).toString(2).padStart(tag.bitLen, '0')}`;
 }
@@ -1731,51 +1750,7 @@ export class TLBRuntime<T = ParsedCell> {
 
                 // Handle MsgAddress types: MsgAddress, MsgAddressInt, MsgAddressExt
                 if (typeName === 'MsgAddress' || typeName === 'MsgAddressInt' || typeName === 'MsgAddressExt') {
-                    // Check first 2 bits to determine address type
-                    // 00 = addr_none (MsgAddressExt)
-                    // 01 = addr_extern (MsgAddressExt)
-                    // 10 = addr_std (MsgAddressInt)
-                    // 11 = addr_var (MsgAddressInt)
-                    if (slice.remainingBits < 2) {
-                        return {
-                            success: false,
-                            error: new TLBDataError(
-                                `Not enough bits to read field ${fieldName} (need at least 2 bits for MsgAddress)`,
-                            ),
-                        };
-                    }
-                    const type = slice.preloadUint(2);
-                    if (type === 0) {
-                        // addr_none$00 = MsgAddressExt
-                        slice.loadUint(2); // consume the 2 bits
-                        value[fieldName] = null;
-                    } else if (type === 1) {
-                        // addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt
-                        slice.loadUint(2); // consume the 2 bits
-                        if (slice.remainingBits < 9) {
-                            return {
-                                success: false,
-                                error: new TLBDataError(
-                                    `Not enough bits to read field ${fieldName} (need at least 9 bits for len)`,
-                                ),
-                            };
-                        }
-                        const len = slice.loadUint(9);
-                        if (slice.remainingBits < len) {
-                            return {
-                                success: false,
-                                error: new TLBDataError(
-                                    `Not enough bits to read field ${fieldName} (need ${len} bits for external_address)`,
-                                ),
-                            };
-                        }
-                        const externalAddress = slice.loadUintBig(len);
-                        value[fieldName] = new ExternalAddress(externalAddress, len);
-                    } else {
-                        // addr_std$10 or addr_var$11 = MsgAddressInt
-                        // Use slice.loadAddress() which handles both addr_std and addr_var
-                        value[fieldName] = slice.loadAddress();
-                    }
+                    value[fieldName] = readAddress(slice, typeName);
                     continue;
                 }
 
@@ -2824,30 +2799,7 @@ export class TLBRuntime<T = ParsedCell> {
                     fieldType.name === 'MsgAddressInt' ||
                     fieldType.name === 'MsgAddressExt'
                 ) {
-                    // Check first 2 bits to determine address type
-                    // 00 = addr_none (MsgAddressExt)
-                    // 01 = addr_extern (MsgAddressExt)
-                    // 10 = addr_std (MsgAddressInt)
-                    // 11 = addr_var (MsgAddressInt)
-                    if (slice.remainingBits < 2) {
-                        throw new TLBDataError('Not enough bits for MsgAddress: expected a 2-bit tag');
-                    }
-                    const type = slice.preloadUint(2);
-                    if (type === 0) {
-                        // addr_none$00 = MsgAddressExt
-                        slice.loadUint(2); // consume the 2 bits
-                        return null;
-                    } else if (type === 1) {
-                        // addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt
-                        slice.loadUint(2); // consume the 2 bits
-                        const len = slice.loadUint(9);
-                        const externalAddress = slice.loadUintBig(len);
-                        return new ExternalAddress(externalAddress, len);
-                    } else {
-                        // addr_std$10 or addr_var$11 = MsgAddressInt
-                        // Use slice.loadAddress() which handles both addr_std and addr_var
-                        return slice.loadAddress();
-                    }
+                    return readAddress(slice, fieldType.name);
                 }
 
                 if (fieldType.name === 'SnakeString') {
@@ -3243,32 +3195,8 @@ export class TLBRuntime<T = ParsedCell> {
                 return slice.loadCoins();
             }
 
-            case 'TLBAddressType': {
-                // Check first 2 bits to determine address type
-                // 00 = addr_none (MsgAddressExt)
-                // 01 = addr_extern (MsgAddressExt)
-                // 10 = addr_std (MsgAddressInt)
-                // 11 = addr_var (MsgAddressInt)
-                if (slice.remainingBits < 2) {
-                    throw new TLBDataError('Not enough bits for MsgAddress: expected a 2-bit tag');
-                }
-                const type = slice.preloadUint(2);
-                if (type === 0) {
-                    // addr_none$00 = MsgAddressExt
-                    slice.loadUint(2); // consume the 2 bits
-                    return null;
-                } else if (type === 1) {
-                    // addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt
-                    slice.loadUint(2); // consume the 2 bits
-                    const len = slice.loadUint(9);
-                    const externalAddress = slice.loadUintBig(len);
-                    return new ExternalAddress(externalAddress, len);
-                } else {
-                    // addr_std$10 or addr_var$11 = MsgAddressInt
-                    // Use slice.loadAddress() which handles both addr_std and addr_var
-                    return slice.loadAddress();
-                }
-            }
+            case 'TLBAddressType':
+                return readAddress(slice, fieldType.name);
 
             case 'TLBCellType': {
                 // if (slice.remainingRefs === 0) {
@@ -4284,25 +4212,7 @@ export class TLBRuntime<T = ParsedCell> {
 
                 // Handle MsgAddress types: MsgAddress, MsgAddressInt, MsgAddressExt
                 if (typeName === 'MsgAddress' || typeName === 'MsgAddressInt' || typeName === 'MsgAddressExt') {
-                    if (fieldValue !== undefined) {
-                        if (fieldValue === null || fieldValue === undefined) {
-                            // addr_none$00 = MsgAddressExt
-                            builder.storeUint(0, 2);
-                        } else if (fieldValue instanceof ExternalAddress) {
-                            // addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt
-                            builder.storeUint(1, 2);
-                            builder.storeUint(fieldValue.bits, 9);
-                            builder.storeUint(fieldValue.value, fieldValue.bits);
-                        } else {
-                            // addr_std$10 or addr_var$11 = MsgAddressInt
-                            // Parse string addresses to Address objects
-                            let address = fieldValue;
-                            if (typeof address === 'string') {
-                                address = Address.parse(address);
-                            }
-                            builder.storeAddress(address);
-                        }
-                    }
+                    if (fieldValue !== undefined) writeAddress(builder, fieldValue, typeName);
                     continue;
                 }
 
@@ -4528,22 +4438,7 @@ export class TLBRuntime<T = ParsedCell> {
                     fieldType.name === 'MsgAddressInt' ||
                     fieldType.name === 'MsgAddressExt'
                 ) {
-                    if (value === null || value === undefined) {
-                        // addr_none$00 = MsgAddressExt
-                        builder.storeUint(0, 2);
-                    } else if (value instanceof ExternalAddress) {
-                        // addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt
-                        builder.storeUint(1, 2);
-                        builder.storeUint(value.bits, 9);
-                        builder.storeUint(value.value, value.bits);
-                    } else {
-                        // addr_std$10 or addr_var$11 = MsgAddressInt
-                        // Parse string addresses to Address objects
-                        if (typeof value === 'string') {
-                            value = Address.parse(value);
-                        }
-                        builder.storeAddress(value);
-                    }
+                    writeAddress(builder, value, fieldType.name);
                     break;
                 }
 
@@ -4727,25 +4622,9 @@ export class TLBRuntime<T = ParsedCell> {
                 break;
             }
 
-            case 'TLBAddressType': {
-                if (value === null || value === undefined) {
-                    // addr_none$00 = MsgAddressExt
-                    builder.storeUint(0, 2);
-                } else if (value instanceof ExternalAddress) {
-                    // addr_extern$01 len:(## 9) external_address:(bits len) = MsgAddressExt
-                    builder.storeUint(1, 2);
-                    builder.storeUint(value.bits, 9);
-                    builder.storeUint(value.value, value.bits);
-                } else {
-                    // addr_std$10 or addr_var$11 = MsgAddressInt
-                    // Parse string addresses to Address objects
-                    if (typeof value === 'string') {
-                        value = Address.parse(value);
-                    }
-                    builder.storeAddress(value);
-                }
+            case 'TLBAddressType':
+                writeAddress(builder, value, fieldType.name);
                 break;
-            }
 
             case 'TLBCellType': {
                 builder.storeSlice(value.beginParse());

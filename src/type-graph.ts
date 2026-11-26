@@ -94,7 +94,7 @@ function spelling(t: TLBFieldType): string {
         case 'TLBBoolType':
             return 'Bool';
         case 'TLBAddressType':
-            return 'MsgAddress';
+            return t.name ?? 'MsgAddress';
         case 'TLBCoinsType':
             return 'Coins';
         case 'TLBTupleType':
@@ -240,7 +240,12 @@ export function resolveTypeGraph(
                         if (f.name === 'SnakeString') return { kind: 'string' };
                         if (f.name === 'Cell' || f.name === 'Any') return { kind: 'cell' };
                         if (f.name === 'Bool') return { kind: 'boolean' };
-                        if (/^MsgAddress(Int|Ext)?$/.test(f.name)) return { kind: 'address', variant: 'any' };
+                        if (/^MsgAddress(Int|Ext)?$/.test(f.name))
+                            return {
+                                kind: 'address',
+                                variant:
+                                    f.name === 'MsgAddressInt' ? 'int' : f.name === 'MsgAddressExt' ? 'ext' : 'any',
+                            };
                         if (['VarInteger', 'VarUInteger', 'Grams'].includes(f.name))
                             return { kind: 'bigint', signed: f.name === 'VarInteger' };
                         if (f.name === 'HashmapE' && f.arguments.length === 2) {
@@ -297,7 +302,10 @@ export function resolveTypeGraph(
                     case 'TLBCellType':
                         return { kind: 'cell' };
                     case 'TLBAddressType':
-                        return { kind: 'address', variant: 'any' };
+                        return {
+                            kind: 'address',
+                            variant: f.name === 'MsgAddressInt' ? 'int' : f.name === 'MsgAddressExt' ? 'ext' : 'any',
+                        };
                     case 'TLBHashmapType':
                         return { kind: 'dictionary', keyBits: nat(f.key), value: resolve(f.value) };
                     case 'TLBMultipleType':

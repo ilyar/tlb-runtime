@@ -24,6 +24,16 @@ function expression(expr: legacy.TLBMathExpr): TLBMathExpr {
 
 function fieldType(type: legacy.TLBFieldType): TLBFieldType {
     switch (type.kind) {
+        case 'TLBAddressType':
+            return {
+                ...type,
+                name:
+                    type.addrType === 'Internal'
+                        ? 'MsgAddressInt'
+                        : type.addrType === 'External'
+                          ? 'MsgAddressExt'
+                          : 'MsgAddress',
+            };
         case 'TLBNumberType':
             return { kind: type.kind, signed: type.signed, bits: expression(type.bits), maxBits: type.maxBits };
         case 'TLBBitsType':

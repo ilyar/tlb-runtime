@@ -92,6 +92,7 @@ export interface TLBVarIntegerType {
 
 export interface TLBAddressType {
     kind: 'TLBAddressType';
+    name?: 'MsgAddress' | 'MsgAddressInt' | 'MsgAddressExt';
 }
 
 export interface TLBCellType {

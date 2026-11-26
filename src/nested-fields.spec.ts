@@ -1,4 +1,4 @@
-import { beginCell } from '@ton/core';
+import { Address, beginCell, ExternalAddress } from '@ton/core';
 
 import { runtimeBy, parseTLB, TLBDataError } from './index';
 import { TLBLib, TLBStd } from './tesdata';
@@ -34,9 +34,45 @@ describe.each([runtimeBy, parseTLB])('MsgAddress tag (%p)', (compile) => {
         for (const slice of [beginCell(), beginCell().storeBit(0), beginCell().storeBit(1)]) {
             expect(() => r.decodeCell(slice.endCell(), { rootType: 'Root' })).toThrow(TLBDataError);
         }
+        if (type === 'MsgAddressInt') {
+            expect(() => r.decodeCell(beginCell().storeUint(0, 2).endCell(), { rootType: 'Root' })).toThrow(
+                TLBDataError,
+            );
+            expect(() => r.encodeCell({ kind: 'Root', address: null })).toThrow(TLBDataError);
+            return;
+        }
         expect(r.decodeCell(beginCell().storeUint(0, 2).endCell(), { rootType: 'Root', exact: true })).toEqual({
             kind: 'Root',
             address: null,
         });
+    });
+});
+
+describe.each([runtimeBy, parseTLB])('address variants (%p)', (compile) => {
+    it.each(['MsgAddress', 'MsgAddressInt', 'MsgAddressExt'])('round-trips valid %s tags only', (type) => {
+        const r = compile(TLBLib.MsgAddress + `_ address:${type} = Root;`);
+        const options = { rootType: 'Root', exact: true };
+        for (const address of [null, new ExternalAddress(9n, 4), new Address(0, Buffer.alloc(32, 7))]) {
+            const cell = beginCell().storeAddress(address).endCell();
+            const data = { kind: 'Root', address };
+            const internal = Address.isAddress(address);
+            if (type === 'MsgAddress' || internal === (type === 'MsgAddressInt')) {
+                expect(r.encodeCell(r.decodeCell(cell, options)).equals(cell)).toBe(true);
+                expect(r.encodeCell(data).equals(cell)).toBe(true);
+            } else {
+                expect(() => r.decodeCell(cell, options)).toThrow(TLBDataError);
+                expect(() => r.encodeCell(data)).toThrow(TLBDataError);
+            }
+        }
+        const variable = beginCell()
+            .storeUint(3, 2)
+            .storeBit(0)
+            .storeUint(8, 9)
+            .storeInt(0, 32)
+            .storeUint(42, 8)
+            .endCell();
+        expect(() => r.decodeCell(variable, options)).toThrow(
+            type === 'MsgAddressExt' ? /Invalid address tag/ : /addr_var/,
+        );
     });
 });

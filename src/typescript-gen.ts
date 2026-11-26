@@ -40,6 +40,8 @@ export function typescript(graph: ResolvedTypeGraph, options: TypeScriptOptions)
                 return choices.join(' | ');
             }
             case 'address':
+                if (t.variant === 'int') return core('Address');
+                if (t.variant === 'ext') return core('ExternalAddress') + ' | null';
                 return [core('Address'), core('ExternalAddress'), 'null'].join(' | ');
             case 'nullable':
                 return field(t.inner) + ' | null';

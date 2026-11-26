@@ -1833,6 +1833,7 @@ export class Schema {
                 if (typeName === 'MsgAddress' || typeName === 'MsgAddressInt' || typeName === 'MsgAddressExt') {
                     return {
                         kind: 'TLBAddressType',
+                        name: typeName,
                     };
                 }
 
