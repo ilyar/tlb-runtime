@@ -1,4 +1,21 @@
-import { ast, Declaration, FieldAnonymousDef, FieldAnonExpr, walk } from 'tlb-parser-v2';
+import {
+    ast,
+    Declaration,
+    FieldAnonymousDef,
+    FieldAnonExpr,
+    BuiltinOneArgExpr,
+    CellRefExpr,
+    CombinatorExpr,
+    CompareExpr,
+    CondExpr,
+    FieldBuiltinDef,
+    FieldCurlyExprDef,
+    MathExpr,
+    NameExpr,
+    NegateExpr,
+    NumberExpr,
+    walk,
+} from 'tlb-parser-v2';
 
 import { Result } from '../Result';
 import { TLBSchemaError } from '../errors';
@@ -121,20 +138,19 @@ export class Schema {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static extractTypesFromExpr(expr: any, deps: Set<string>) {
         if (!expr) return;
-        const ctor = expr.constructor?.name;
-        if (ctor === 'CombinatorExpr') {
+        if (expr instanceof CombinatorExpr) {
             if (expr.name) deps.add(expr.name);
             if (expr.args) {
                 for (const arg of expr.args) Schema.extractTypesFromExpr(arg, deps);
             }
-        } else if (ctor === 'CellRefExpr') {
+        } else if (expr instanceof CellRefExpr) {
             Schema.extractTypesFromExpr(expr.expr, deps);
-        } else if (ctor === 'NameExpr') {
+        } else if (expr instanceof NameExpr) {
             if (expr.name) deps.add(expr.name);
-        } else if (ctor === 'MathExpr' || ctor === 'CompareExpr') {
+        } else if (expr instanceof MathExpr || expr instanceof CompareExpr) {
             Schema.extractTypesFromExpr(expr.left, deps);
             Schema.extractTypesFromExpr(expr.right, deps);
-        } else if (ctor === 'NegateExpr') {
+        } else if (expr instanceof NegateExpr) {
             Schema.extractTypesFromExpr(expr.expr, deps);
         }
     }
@@ -470,7 +486,7 @@ export class Schema {
 
                 // Parse field type expression
                 let fieldTypeExpr: TypeExpr;
-                if (fieldDecl.constructor.name === 'FieldAnonymousDef') {
+                if (fieldDecl instanceof FieldAnonymousDef) {
                     // Handle anonymous inline type definition (e.g., ^[$_ ... ] or [$_ ... ])
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const anonFieldDecl = fieldDecl as any;
@@ -530,13 +546,11 @@ export class Schema {
 
                 // Detect implicit field
                 // FieldBuiltinDef ({n:#}) and FieldCurlyExprDef ({...}) are implicit
-                const isImplicit =
-                    fieldDecl.constructor.name === 'FieldBuiltinDef' ||
-                    fieldDecl.constructor.name === 'FieldCurlyExprDef';
+                const isImplicit = fieldDecl instanceof FieldBuiltinDef || fieldDecl instanceof FieldCurlyExprDef;
 
                 // FieldCurlyExprDef is a constraint (e.g., {n <= m} or {= n (~m + l)})
                 // FieldBuiltinDef is a parameter definition (e.g., {n:#} or {X:Type})
-                const isConstraint = fieldDecl.constructor.name === 'FieldCurlyExprDef';
+                const isConstraint = fieldDecl instanceof FieldCurlyExprDef;
 
                 const field = new Field(
                     i,
@@ -893,7 +907,7 @@ export class Schema {
             const fieldNameIdx = fieldName ? symbolMap.lookupAdd(fieldName) : 0;
 
             let fieldTypeExpr: TypeExpr;
-            if (fieldDecl.constructor.name === 'FieldAnonymousDef') {
+            if (fieldDecl instanceof FieldAnonymousDef) {
                 // Recursively handle nested anonymous types
                 const anonType = this.createAnonymousType(
                     fieldDecl.fields || [],
@@ -932,9 +946,8 @@ export class Schema {
                 localParams.set(fieldNameIdx, { idx: i, isNat: fieldTypeExpr.isNat || fieldTypeExpr.isNatSubtype });
             }
 
-            const isImplicit =
-                fieldDecl.constructor.name === 'FieldBuiltinDef' || fieldDecl.constructor.name === 'FieldCurlyExprDef';
-            const isConstraint = fieldDecl.constructor.name === 'FieldCurlyExprDef';
+            const isImplicit = fieldDecl instanceof FieldBuiltinDef || fieldDecl instanceof FieldCurlyExprDef;
+            const isConstraint = fieldDecl instanceof FieldCurlyExprDef;
 
             const field = new Field(
                 i,
@@ -1008,11 +1021,11 @@ export class Schema {
         }
 
         // Handle AST nodes from tlb-parser
-        if (expr.constructor.name === 'NumberExpr' || ('num' in expr && !('kind' in expr))) {
+        if (expr instanceof NumberExpr || ('num' in expr && !('kind' in expr))) {
             return this.registerConstExpr(new TypeExpr(TypeExprType.IntConst, null, [], expr.num, true, true));
         }
 
-        if (expr.constructor.name === 'BuiltinOneArgExpr' || ('name' in expr && 'arg' in expr && !('kind' in expr))) {
+        if (expr instanceof BuiltinOneArgExpr || ('name' in expr && 'arg' in expr && !('kind' in expr))) {
             const typeName = expr.name as string;
             const appliedType = this.findTypeByName(typeName);
             if (appliedType) {
@@ -1029,7 +1042,7 @@ export class Schema {
             }
         }
 
-        if (expr.constructor.name === 'CondExpr') {
+        if (expr instanceof CondExpr) {
             let condition = this.parseTypeExpr(expr.left, where, params);
             if (expr.dotExpr != null) {
                 condition = new TypeExpr(TypeExprType.GetBit, null, [condition], Number(expr.dotExpr));
@@ -1110,7 +1123,7 @@ export class Schema {
         }
 
         // Handle NegateExpr: ~expr (negated expression)
-        if (expr.constructor.name === 'NegateExpr') {
+        if (expr instanceof NegateExpr) {
             const innerExpr = this.parseTypeExpr(expr.expr, where, params);
 
             // For integer constants, evaluate the negation: ~0 = 0, ~1 = 1, etc.
@@ -1171,14 +1184,14 @@ export class Schema {
         }
 
         // Handle CellRefExpr: ^expr (cell reference)
-        if (expr.constructor.name === 'CellRefExpr') {
+        if (expr instanceof CellRefExpr) {
             const innerExpr = this.parseTypeExpr(expr.expr, where, params);
             const refExpr = new TypeExpr(TypeExprType.Ref, null, [innerExpr]);
             return this.registerConstExpr(refExpr);
         }
 
         // Handle CombinatorExpr: TypeName args...
-        if (expr.constructor.name === 'CombinatorExpr') {
+        if (expr instanceof CombinatorExpr) {
             const typeName = expr.name as string;
             const appliedType = this.findTypeByName(typeName);
             if (appliedType) {
@@ -1201,7 +1214,7 @@ export class Schema {
         }
 
         // Handle MathExpr: left op right (e.g., n + 1)
-        if (expr.constructor.name === 'MathExpr') {
+        if (expr instanceof MathExpr) {
             const leftExpr = this.parseTypeExpr(expr.left, where, params);
             const rightExpr = this.parseTypeExpr(expr.right, where, params);
             const op = expr.op as string;
@@ -1235,7 +1248,7 @@ export class Schema {
         }
 
         // Handle CompareExpr: left op right (e.g., n <= m)
-        if (expr.constructor.name === 'CompareExpr') {
+        if (expr instanceof CompareExpr) {
             const leftExpr = this.parseTypeExpr(expr.left, where, params);
             const rightExpr = this.parseTypeExpr(expr.right, where, params);
             const appliedType = this.findTypeByName(expr.op);
@@ -1245,7 +1258,7 @@ export class Schema {
         }
 
         // Handle NameExpr: simple variable reference
-        if (expr.constructor.name === 'NameExpr') {
+        if (expr instanceof NameExpr) {
             const exprName = expr.name as string;
             // Check in params
             const nameId = symbolMap.lookup(exprName);
