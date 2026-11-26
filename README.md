@@ -53,9 +53,11 @@ if (unpack.success) {
 import '@ton-community/tlb-runtime/type-export.js';
 import { runtimeBy } from '@ton-community/tlb-runtime';
 
-const runtime = runtimeBy(schema);
-const editorSchema = runtime.toJSONSchema({ rootType: 'Share', title: 'Share link' });
-const declarations = runtime.toTypeScript({ rootType: 'Share' });
+const runtime = runtimeBy('_ x:# = Foo;');
+const editorSchema = runtime.toJSONSchema({ rootType: 'Foo', title: 'Schema for Foo' });
+console.log(JSON.stringify(editorSchema, null, 2));
+const declarations = runtime.toTypeScript({ rootType: 'Foo' });
+console.log(declarations);
 ```
 
 The optional `type-export.js` entry installs the export methods. Import it in the build script or application module that generates types. Applications using the main entry alone bundle only the codec and its existing dependencies.
