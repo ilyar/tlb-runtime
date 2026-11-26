@@ -2812,7 +2812,7 @@ export class TLBRuntime<T = ParsedCell> {
                     // 10 = addr_std (MsgAddressInt)
                     // 11 = addr_var (MsgAddressInt)
                     if (slice.remainingBits < 2) {
-                        return null;
+                        throw new TLBDataError('Not enough bits for MsgAddress: expected a 2-bit tag');
                     }
                     const type = slice.preloadUint(2);
                     if (type === 0) {
@@ -3022,30 +3022,12 @@ export class TLBRuntime<T = ParsedCell> {
                 if (!type) {
                     throw new TLBDataError(`Type ${fieldType.name} not found in TL-B schema`);
                 }
-                // Pass type arguments and explicitly build child variables for nested type
-                // US-005: Resolve type and Nat parameter arguments before forwarding
-                // Filter out negated arguments (those that reference negated variables like ~l in HmLabel ~l n)
-                // Negated arguments are outputs, not inputs, so they shouldn't be passed to the nested type
+                // A variable-width integer is a type argument. Resolve its width in the caller's scope.
+                // Keep explicit TLBNegatedType placeholders aligned with result parameters.
                 const forwardedArgs: TLBFieldType[] = (fieldType.arguments ?? [])
-                    .filter((arg, _argIndex) => {
-                        // Check if this argument references a negated variable
-                        if (arg.kind === 'TLBNamedType') {
-                            // Check in current constructor's variables
-                            if (ctxConstructor) {
-                                const varDef = ctxConstructor.variablesMap.get(arg.name);
-                                if (varDef && varDef.negated) {
-                                    // This references a negated variable - skip it
-                                    return false;
-                                }
-                            }
-                        } else if (arg.kind === 'TLBNumberType' && arg.bits.kind === 'TLBVarExpr') {
-                            // This is a TLBVarExpr argument (like ~l which becomes TLBVarExpr("_3"))
-                            // In TL-B, arguments with ~ prefix (negated) are compiled to TLBVarExpr
-                            // These are output parameters, not input parameters, so skip them
-                            return false;
-                        }
-                        return true;
-                    })
+                    .filter(
+                        (arg) => arg.kind !== 'TLBNamedType' || !ctxConstructor?.variablesMap.get(arg.name)?.negated,
+                    )
                     .map((arg) => {
                         // Resolve numeric arguments in the caller before entering the callee's scope.
                         if (arg.kind === 'TLBExprMathType') {
@@ -3313,7 +3295,7 @@ export class TLBRuntime<T = ParsedCell> {
                 // 10 = addr_std (MsgAddressInt)
                 // 11 = addr_var (MsgAddressInt)
                 if (slice.remainingBits < 2) {
-                    return null;
+                    throw new TLBDataError('Not enough bits for MsgAddress: expected a 2-bit tag');
                 }
                 const type = slice.preloadUint(2);
                 if (type === 0) {
