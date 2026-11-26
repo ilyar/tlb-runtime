@@ -1,21 +1,31 @@
 const assert = require('node:assert/strict');
+const test = require('node:test');
 
-const { runtimeBy } = require('@ton-community/tlb-runtime');
-const { beginCell, Address, Dictionary } = require('@ton/core');
-const child = beginCell().storeUint(255, 8).endCell();
-const bits = beginCell().storeUint(0xf13a, 16).endCell().bits;
-const schema = '_ child:^Cell bits:bits16 = Box;';
-const r = runtimeBy(schema, { autoText: false });
-const encoded = r.encodeCell({ kind: 'Box', child, bits });
-assert(encoded.equals(beginCell().storeRef(child).storeBits(bits).endCell()));
-const record = r.decodeCell(encoded);
-assert(record.bits.equals(bits));
-assert(record.child.equals(child));
-const a = new Address(0, Buffer.alloc(32, 7));
-const fields = 'addr_none$00 = MsgAddressExt; addr_std$10 = MsgAddressInt; _ a:MsgAddressInt = Addr;';
-const ar = runtimeBy(fields);
-assert(ar.encodeCell({ kind: 'Addr', a }).equals(beginCell().storeAddress(a).endCell()));
-const dr = require('@ton-community/tlb-runtime').parseTLB('_ d:(HashmapE 8 uint16) = Dict;');
-const dict = Dictionary.empty(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(16));
-dict.set(3, 451);
-assert(dr.encodeCell({ kind: 'Dict', d: dict }).equals(beginCell().storeDict(dict).endCell()));
+const { parseTLB, runtimeBy } = require('@ton-community/tlb-runtime');
+const { Address, beginCell, Dictionary } = require('@ton/core');
+
+test('accepts Cell and BitString instances created by the application', () => {
+    const runtime = runtimeBy('_ child:^Cell bits:bits16 = Box;', { autoText: false });
+    const child = beginCell().storeUint(255, 8).endCell();
+    const bits = beginCell().storeUint(0xf13a, 16).endCell().bits;
+    const wire = beginCell().storeRef(child).storeBits(bits).endCell();
+
+    assert(runtime.encodeCell({ kind: 'Box', child, bits }).equals(wire));
+    const record = runtime.decodeCell(wire);
+    assert(record.child.equals(child));
+    assert(record.bits.equals(bits));
+});
+
+test('accepts an Address created by the application', () => {
+    const runtime = runtimeBy('addr_std$10 = MsgAddressInt; _ address:MsgAddressInt = Box;');
+    const address = new Address(0, Buffer.alloc(32, 7));
+    const wire = beginCell().storeAddress(address).endCell();
+    assert(runtime.encodeCell({ kind: 'Box', address }).equals(wire));
+});
+
+test('accepts a Dictionary created by the application', () => {
+    const runtime = parseTLB('_ entries:(HashmapE 8 uint16) = Box;');
+    const entries = Dictionary.empty(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(16)).set(3, 451);
+    const wire = beginCell().storeDict(entries).endCell();
+    assert(runtime.encodeCell({ kind: 'Box', entries }).equals(wire));
+});

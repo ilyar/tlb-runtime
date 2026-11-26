@@ -1,19 +1,37 @@
-import { beginCell, Dictionary } from '@ton/core';
+import { beginCell, Cell, Dictionary } from '@ton/core';
 
 import { parseTLB, runtimeBy } from './index';
 import { TLBLib } from './tesdata';
 
-it.each([false, true])('retains the leaf codec when the decoded dictionary starts populated=%s', (populated) => {
-    const runtime = runtimeBy(TLBLib.HashmapE + '_ entries:(HashmapE 8 uint16) = Box;');
-    const expected = Dictionary.empty(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(16));
-    if (populated) expected.set(1, 1234);
-    const input = beginCell().storeDict(expected).endCell();
-    const { entries } = runtime.decodeCell(input, { rootType: 'Box' });
+const key = Dictionary.Keys.Uint(8);
+const byte = Dictionary.Values.Uint(8);
+
+function decodeByteDictionary(input: Cell) {
+    const runtime = runtimeBy(TLBLib.HashmapE + '_ entries:(HashmapE 8 uint8) = Box;');
+    const { entries } = runtime.decodeCell(input, { rootType: 'Box', exact: true });
     if (!(entries instanceof Dictionary)) throw new Error('Expected Dictionary');
+    return entries;
+}
+
+it('preserves a decoded leaf when TON Core writes the dictionary', () => {
+    const original = Dictionary.empty(key, byte).set(17, 42);
+    const input = beginCell().storeDict(original).endCell();
+    const entries = decodeByteDictionary(input);
+
+    expect(entries.get(17)).toBe(42);
     expect(beginCell().storeDict(entries).endCell().equals(input)).toBe(true);
-    expected.set(3, 5678);
-    entries.set(3, 5678);
-    expect(beginCell().storeDict(entries).endCell().equals(beginCell().storeDict(expected).endCell())).toBe(true);
+    entries.set(17, 43);
+    const updated = beginCell().storeDict(entries).endCell();
+    expect(updated.beginParse().loadDict(key, byte).get(17)).toBe(43);
+});
+
+it('keeps the value codec when the first entry is added after decoding', () => {
+    const empty = beginCell().storeBit(false).endCell();
+    const entries = decodeByteDictionary(empty);
+    entries.set(17, 42);
+
+    const updated = beginCell().storeDict(entries).endCell();
+    expect(updated.beginParse().loadDict(key, byte).get(17)).toBe(42);
 });
 
 it('keeps a native codec for direct dictionaries with wide keys and reference leaves', () => {

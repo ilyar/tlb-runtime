@@ -28,42 +28,53 @@ describe('variable-width numeric type arguments', () => {
     });
 });
 
-describe.each([runtimeBy, parseTLB])('MsgAddress tag (%p)', (compile) => {
-    it.each(['MsgAddress', 'MsgAddressInt', 'MsgAddressExt'])('requires two bits for %s', (type) => {
-        const r = compile(TLBLib.MsgAddress + `_ address:${type} = Root;`);
-        for (const slice of [beginCell(), beginCell().storeBit(0), beginCell().storeBit(1)]) {
-            expect(() => r.decodeCell(slice.endCell(), { rootType: 'Root' })).toThrow(TLBDataError);
-        }
-        if (type === 'MsgAddressInt') {
-            expect(() => r.decodeCell(beginCell().storeUint(0, 2).endCell(), { rootType: 'Root' })).toThrow(
-                TLBDataError,
-            );
-            expect(() => r.encodeCell({ kind: 'Root', address: null })).toThrow(TLBDataError);
-            return;
-        }
-        expect(r.decodeCell(beginCell().storeUint(0, 2).endCell(), { rootType: 'Root', exact: true })).toEqual({
-            kind: 'Root',
-            address: null,
-        });
-    });
-});
+const none = null;
+const external = new ExternalAddress(9n, 4);
+const internal = new Address(0, Buffer.alloc(32, 7));
 
-describe.each([runtimeBy, parseTLB])('address variants (%p)', (compile) => {
-    it.each(['MsgAddress', 'MsgAddressInt', 'MsgAddressExt'])('round-trips valid %s tags only', (type) => {
-        const r = compile(TLBLib.MsgAddress + `_ address:${type} = Root;`);
-        const options = { rootType: 'Root', exact: true };
-        for (const address of [null, new ExternalAddress(9n, 4), new Address(0, Buffer.alloc(32, 7))]) {
-            const cell = beginCell().storeAddress(address).endCell();
-            const data = { kind: 'Root', address };
-            const internal = Address.isAddress(address);
-            if (type === 'MsgAddress' || internal === (type === 'MsgAddressInt')) {
-                expect(r.encodeCell(r.decodeCell(cell, options)).equals(cell)).toBe(true);
-                expect(r.encodeCell(data).equals(cell)).toBe(true);
-            } else {
-                expect(() => r.decodeCell(cell, options)).toThrow(TLBDataError);
-                expect(() => r.encodeCell(data)).toThrow(TLBDataError);
-            }
+describe.each([runtimeBy, parseTLB])('address tags with %p', (compile) => {
+    function addressRuntime(type: string) {
+        return compile(TLBLib.MsgAddress + `_ address:${type} = Root;`);
+    }
+
+    it.each(['MsgAddress', 'MsgAddressInt', 'MsgAddressExt'])('requires two bits for %s', (type) => {
+        const runtime = addressRuntime(type);
+        for (const builder of [beginCell(), beginCell().storeBit(0), beginCell().storeBit(1)]) {
+            expect(() => runtime.decodeCell(builder.endCell(), { rootType: 'Root' })).toThrow(TLBDataError);
         }
+    });
+
+    it.each([
+        ['MsgAddress', none],
+        ['MsgAddress', external],
+        ['MsgAddress', internal],
+        ['MsgAddressExt', none],
+        ['MsgAddressExt', external],
+        ['MsgAddressInt', internal],
+    ] as const)('accepts %s with %s', (type, address) => {
+        const runtime = addressRuntime(type);
+        const wire = beginCell().storeAddress(address).endCell();
+        const decoded = runtime.decodeCell(wire, { rootType: 'Root', exact: true });
+        expect(String(decoded.address)).toBe(String(address));
+        expect(runtime.encodeCell({ kind: 'Root', address }).equals(wire)).toBe(true);
+    });
+
+    it.each([
+        ['MsgAddressInt', none],
+        ['MsgAddressInt', external],
+        ['MsgAddressExt', internal],
+    ] as const)('rejects %s with %s', (type, address) => {
+        const runtime = addressRuntime(type);
+        const wire = beginCell().storeAddress(address).endCell();
+        expect(() => runtime.decodeCell(wire, { rootType: 'Root' })).toThrow(/Invalid address tag/);
+        expect(() => runtime.encodeCell({ kind: 'Root', address })).toThrow(/Invalid address value/);
+    });
+
+    it.each([
+        ['MsgAddress', /addr_var/],
+        ['MsgAddressInt', /addr_var/],
+        ['MsgAddressExt', /Invalid address tag/],
+    ] as const)('diagnoses addr_var in %s', (type, error) => {
         const variable = beginCell()
             .storeUint(3, 2)
             .storeBit(0)
@@ -71,8 +82,6 @@ describe.each([runtimeBy, parseTLB])('address variants (%p)', (compile) => {
             .storeInt(0, 32)
             .storeUint(42, 8)
             .endCell();
-        expect(() => r.decodeCell(variable, options)).toThrow(
-            type === 'MsgAddressExt' ? /Invalid address tag/ : /addr_var/,
-        );
+        expect(() => addressRuntime(type).decodeCell(variable, { rootType: 'Root' })).toThrow(error);
     });
 });
