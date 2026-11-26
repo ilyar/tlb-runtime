@@ -58,3 +58,43 @@ describe('legacy public API', () => {
         expect(() => parseTLB('_')).toThrow('Bad Schema');
     });
 });
+
+describe('public encoding of alpha.4 records', () => {
+    it.each(['', 'bool_false$0 = Bool; bool_true$1 = Bool; '])(
+        'round-trips both Bool values with declarations %j',
+        (prefix) => {
+            const schema = prefix + '_ flag:Bool = Foo;';
+            for (const flag of [false, true]) {
+                const cell = beginCell().storeBit(flag).endCell();
+                const record = parseCell(schema, cell);
+                expect(record).toEqual({ kind: 'Foo', flag });
+                expect(encodeCell(schema, record).equals(cell)).toBe(true);
+                expect(encodeCell(schema, { kind: 'Foo', flag }).equals(cell)).toBe(true);
+            }
+        },
+    );
+
+    it.each(['Coins', '(VarUInteger 16)'])('round-trips shorthand %s', (type) => {
+        const schema = `_ amount:${type} = Foo;`;
+        const cell = beginCell().storeCoins(435n).endCell();
+        const record = parseCell(schema, cell);
+        expect(record).toEqual({ kind: 'Foo', amount: 435n });
+        for (const value of [record, { kind: 'Foo', amount: 435n }, decodeCell(schema, cell)]) {
+            expect(encodeCell(schema, value).equals(cell)).toBe(true);
+        }
+    });
+
+    it('accepts const0 for a legacy const field and preserves explicit const0 fields', () => {
+        const schema = '_ const:uint8 = Foo;';
+        const cell = beginCell().storeUint(15, 8).endCell();
+        const parsed = parseCell(schema, cell);
+        expect(parsed).toEqual({ kind: 'Foo', const0: 15 });
+        for (const record of [parsed, { kind: 'Foo', const0: 15 }, decodeCell(schema, cell)]) {
+            expect(encodeCell(schema, record).equals(cell)).toBe(true);
+        }
+        const both = '_ const:uint8 const0:uint8 = Foo;';
+        const pair = beginCell().storeUint(2, 8).storeUint(3, 8).endCell();
+        expect(encodeCell(both, decodeCell(both, pair)).equals(pair)).toBe(true);
+        expect(() => encodeCell(both, { kind: 'Foo', const0: 3 })).toThrow();
+    });
+});

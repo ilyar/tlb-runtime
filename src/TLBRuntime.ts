@@ -3651,6 +3651,13 @@ export class TLBRuntime<T = ParsedCell> {
                 let fieldValue = data[name];
                 if (
                     fieldValue === undefined &&
+                    name === 'const' &&
+                    !constructor.fields.some((f) => f.name === 'const0')
+                ) {
+                    fieldValue = data.const0;
+                }
+                if (
+                    fieldValue === undefined &&
                     !field.name &&
                     data.anon0 !== undefined &&
                     canUseLegacyAnon0(field, constructor.fields)

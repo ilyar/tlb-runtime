@@ -69,6 +69,13 @@ export class Schema {
                 }
             }
 
+            // Older public APIs accept these standard types without their declarations.
+            for (const name of ['Bool', 'Coins', 'VarUInteger']) {
+                if (!declarationMap.has(name) && new RegExp('\\b' + name + '\\b').test(code)) {
+                    schema.defineBuiltinType(name, name === 'VarUInteger' ? ['#'] : [], false);
+                }
+            }
+
             const visited = new Set<string>();
             const registering = new Set<string>();
 
@@ -1807,6 +1814,25 @@ export class Schema {
                 const constructorName = definition && symbolMap.getName(definition.constrName);
                 if (typeName === 'VmStack' && constructorName === 'vm_stack') {
                     return { kind: 'TLBTupleType' };
+                }
+                if (expr.typeApplied.isBuiltin && typeName === 'Coins') return { kind: 'TLBCoinsType' };
+                if (expr.typeApplied.isBuiltin && typeName === 'VarUInteger') {
+                    if (expr.args.length !== 1) throw new Error('VarUInteger requires one size argument');
+                    const bound = this.typeExprToTLBMathExpr(expr.args[0], paramNameMap);
+                    return {
+                        kind: 'TLBVarIntegerType',
+                        signed: false,
+                        n: {
+                            kind: 'TLBUnaryOp',
+                            operation: '.',
+                            value: {
+                                kind: 'TLBBinaryOp',
+                                operation: '-',
+                                left: bound,
+                                right: { kind: 'TLBNumberExpr', n: 1 },
+                            },
+                        },
+                    };
                 }
                 if (typeName === 'Bool' || (typeName === 'Bit' && constructorName === 'bit')) {
                     return {
