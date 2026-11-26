@@ -3456,38 +3456,33 @@ export class TLBRuntime<T = ParsedCell> {
         callerVariables = new Map<string, number>(),
     ): void {
         // Find matching constructor by kind
-        let typeKind = (data as TypeCell).kind;
+        const typeKind = (data as TypeCell).kind;
         let constructor: TLBConstructor | undefined;
 
-        if (!typeKind) {
-            // Fallback for untyped data: if type has only one constructor, use it
-            if (type.constructors.length === 1) {
-                constructor = type.constructors[0];
-                typeKind = constructor.name === '_' ? type.name : `${type.name}_${constructor.name}`;
-            } else if (type.constructors.length > 0) {
-                // Try to match by properties if possible? For now just pick first
-                constructor = type.constructors[0];
-                typeKind = constructor.name === '_' ? type.name : `${type.name}_${constructor.name}`;
-            } else {
-                throw new TLBDataError('Data must by typed (kind property missing)');
+        if (typeKind === undefined || typeKind === type.name) {
+            const evaluator = new MathExprEvaluator(callerVariables);
+            const candidates = type.constructors.filter((c) =>
+                c.parameters.every((p, i) => {
+                    const arg = args[i];
+                    if (!arg || p.variable.negated || p.paramExpr?.kind !== 'TLBNumberExpr') return true;
+                    const expr =
+                        arg.kind === 'TLBExprMathType'
+                            ? arg.initialExpr
+                            : arg.kind === 'TLBNumberType'
+                              ? arg.bits
+                              : undefined;
+                    return !expr || evaluator.evaluate(expr) === p.paramExpr.n;
+                }),
+            );
+            if (candidates.length !== 1) {
+                throw new TLBDataError(
+                    `Expected an unambiguous kind for ${type.name}; candidates: ${candidates.map((c) => type.name + '_' + c.name).join(', ')}`,
+                );
             }
-        }
-
-        if (typeKind && !constructor) {
-            // For multi-constructor types, kind is formatted as TypeName_constructorName
-            // For single-constructor types, kind is just TypeName
-            if (typeKind.startsWith(type.name + '_')) {
-                const constructorName = typeKind.substring(type.name.length + 1); // Remove TypeName_ prefix
-                constructor = type.constructors.find((c) => c.name === constructorName);
-            } else if (typeKind === type.name) {
-                // Single constructor type or first constructor for multi-constructor type
-                if (type.constructors.length > 0) {
-                    constructor = type.constructors[0];
-                }
-            } else {
-                // Try to find constructor by kind directly (for special types like var_uint, var_int, nanograms)
-                constructor = type.constructors.find((c) => c.name === typeKind);
-            }
+            constructor = candidates[0];
+        } else if (typeof typeKind === 'string') {
+            const name = typeKind.startsWith(type.name + '_') ? typeKind.slice(type.name.length + 1) : typeKind;
+            constructor = type.constructors.find((c) => c.name === name);
         }
 
         if (!constructor) {
