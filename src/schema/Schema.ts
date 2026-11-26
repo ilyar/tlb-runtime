@@ -1680,6 +1680,32 @@ export class Schema {
             }
         }
 
+        for (const type of types.values()) {
+            for (const constructor of type.constructors) {
+                const paths = new Map<string, string>();
+                let anonymousIndex = 0;
+                const visit = (fields: typeof constructor.fields, parent: string, root: boolean) => {
+                    fields.forEach((field, i) => {
+                        const path = parent + '[' + i + ']';
+                        const key = field.name || (root || !field.subFields.length ? 'anon' + anonymousIndex++ : '');
+                        if (field.implicit) return;
+                        if (!field.name && field.subFields.length) {
+                            visit(field.subFields, path, false);
+                            return;
+                        }
+                        const previous = paths.get(key);
+                        if (previous !== undefined) {
+                            throw new TLBSchemaError(
+                                `Duplicate decoded field ${key} in ${type.name} at ${previous} and ${path}`,
+                            );
+                        }
+                        paths.set(key, path);
+                    });
+                };
+                visit(constructor.fields, 'fields', true);
+            }
+        }
+
         return types;
     }
 

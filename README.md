@@ -140,3 +140,8 @@ The [publish workflow](.github/workflows/deploy.yml) checks the tag against the 
 ## Parser source
 
 The runtime uses the npm release of [@ton-community/tlb-parser](https://www.npmjs.com/package/@ton-community/tlb-parser). The dependency name `tlb-parser-v2` distinguishes the 0.2.x parser from the 0.1.x parser required by `tlb-codegen` for the deprecated API.
+
+Unnamed reference groups such as `^[ a:uint8 ]` expose their fields on the
+parent object. Each decoded key must be unique within a constructor, including
+automatically assigned keys such as `anon1`. The schema compiler reports both
+field paths when flattening groups would overwrite a value.
