@@ -521,18 +521,7 @@ export class TLBRuntime<T = ParsedCell> {
             }
         }
 
-        // Check if tag is missing but declaration has it (e.g., "_#de" parsed as "_" with tagBitLen=0)
-        // Extract tag from declaration if present
-        let tagBitLen = constructor.tag.bitLen;
-        let tagBinary = constructor.tag.binary;
-        if (tagBitLen === 0 && constructor.declaration) {
-            const tagMatch = constructor.declaration.match(/^_#([0-9a-fA-F]+)/);
-            if (tagMatch) {
-                const hexTag = tagMatch[1];
-                tagBitLen = hexTag.length * 4; // Each hex digit is 4 bits
-                tagBinary = '0x' + hexTag;
-            }
-        }
+        const { bitLen: tagBitLen, binary: tagBinary } = constructor.tag;
 
         // Check tag if present
         if (tagBitLen > 0) {
@@ -3506,17 +3495,7 @@ export class TLBRuntime<T = ParsedCell> {
         }
 
         // Store tag if present
-        // Check if tag is missing but declaration has it (e.g., "_#de" parsed as "_" with tagBitLen=0)
-        let tagBitLen = constructor.tag.bitLen;
-        let tagBinary = constructor.tag.binary;
-        if (tagBitLen === 0 && constructor.declaration) {
-            const tagMatch = constructor.declaration.match(/^_#([0-9a-fA-F]+)/);
-            if (tagMatch) {
-                const hexTag = tagMatch[1];
-                tagBitLen = hexTag.length * 4; // Each hex digit is 4 bits
-                tagBinary = '0x' + hexTag;
-            }
-        }
+        const { bitLen: tagBitLen, binary: tagBinary } = constructor.tag;
 
         if (tagBitLen > 0) {
             const tag = BigInt(tagBinary);
