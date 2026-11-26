@@ -6,3 +6,4 @@ export { Success, Failure, Result, unwrap } from './Result';
 export { blockSchema } from './blockSchema';
 export { crc32 } from './utils';
 export { TLBMathExpr, TLBConstructorTag, TLBFieldType, TLBField, TLBConstructor, TLBType } from './types';
+export type { CellInput } from './common';

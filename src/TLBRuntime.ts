@@ -14,7 +14,7 @@ import {
 
 import { compileLegacySchema } from './legacySchema';
 import { Schema } from './schema';
-import { decodeBits, stringToBits, toCell } from './common';
+import { type CellInput, decodeBits, stringToBits, toCell } from './common';
 import { MathExprEvaluator } from './MathExprEvaluator';
 import { Result, unwrap } from './Result';
 import { TLBRuntimeError, TLBSchemaError, TLBDataError } from './errors';
@@ -48,6 +48,7 @@ export type DecodedCell =
 
 /** @deprecated Use TypedCell for decoded records or DecodedCell for field values. */
 export type ParsedCell = unknown;
+type DecodedRoot<T> = unknown extends T ? TypedCell : T;
 
 export type TypedCell = TypeCell & DecodedCell;
 
@@ -234,7 +235,7 @@ export class TLBRuntime<T = ParsedCell> {
         return TLBRuntime.create(schema, this.config, this.compileSchema);
     }
 
-    decodeCell(data: Cell | string, options?: DecodeCellOptions): TypedCell {
+    decodeCell(data: CellInput, options?: DecodeCellOptions): DecodedRoot<T> {
         if (options) {
             const type = this.typeMap.get(options.rootType);
             if (!type) throw new TLBDataError(`Unknown root type: ${options.rootType}`);
@@ -245,14 +246,14 @@ export class TLBRuntime<T = ParsedCell> {
             if (!type.constructors.some((c) => c.parameters.length >= args.length)) {
                 throw new TLBDataError(`Too many arguments for ${type.name}`);
             }
-            const cell = typeof data === 'string' ? unwrap(toCell(data)) : data;
-            return unwrap(this.deserializeType(type, cell.beginParse(), args)) as TypedCell;
+            const cell = unwrap(toCell(data));
+            return unwrap(this.deserializeType(type, cell.beginParse(), args)) as DecodedRoot<T>;
         }
-        return unwrap(this.deserialize(data)) as TypedCell;
+        return unwrap(this.deserialize(data)) as DecodedRoot<T>;
     }
 
     /** @deprecated Use decodeCell instead. */
-    parseCell(data: Cell | string): ParsedCell {
+    parseCell(data: CellInput): ParsedCell {
         return this.decodeCell(data);
     }
 
@@ -283,15 +284,10 @@ export class TLBRuntime<T = ParsedCell> {
         return null;
     }
 
-    deserialize(data: Cell | string, findByTag = false): Result<T> {
-        if (typeof data === 'string') {
-            const result = toCell(data);
-            if (!result.success) {
-                return result;
-            }
-            data = result.value;
-        }
-        const slice = data.asSlice();
+    deserialize(data: CellInput, findByTag = false): Result<T> {
+        const parsed = toCell(data);
+        if (!parsed.success) return parsed;
+        const slice = parsed.value.asSlice();
         if (findByTag) {
             const find = this.findByTag(slice);
             if (find) {

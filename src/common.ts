@@ -38,7 +38,19 @@ export function normalizeBitString(bits: BitString): BitString {
     return new BitString(newBuffer, 0, length);
 }
 
-export function toCell(data: string): Result<Cell> {
+export type CellInput = Cell | Uint8Array | string;
+
+export function toCell(data: CellInput): Result<Cell> {
+    if (typeof data !== 'string') {
+        if (!ArrayBuffer.isView(data)) return { success: true, value: data };
+        try {
+            const roots = Cell.fromBoc(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+            if (roots.length !== 1) return { success: false, error: new TLBDataError('Expected exactly one BoC root') };
+            return { success: true, value: roots[0] };
+        } catch (cause) {
+            return { success: false, error: new TLBDataError('Invalid BoC', cause) };
+        }
+    }
     try {
         return { success: true, value: Cell.fromBase64(data) };
     } catch (_) {
