@@ -2,10 +2,13 @@ import { beginCell } from '@ton/core';
 
 import { runtimeBy } from './index';
 
-it('uses the canonical tlbc tag for a reversed comparison', () => {
-    const runtime = runtimeBy('sample a:(## 8) { a >= 5 } = Test;');
-    const wire = beginCell().storeUint(0x7dd95f33, 32).storeUint(6, 8).endCell();
-    const value = { kind: 'Test', a: 6 };
+it.each([
+    ['>=', 0x7dd95f33, 6],
+    ['<=', 0x1c4a843d, 4],
+] as const)('uses the canonical tlbc tag for %s', (op, tag, a) => {
+    const runtime = runtimeBy(`sample a:(## 8) { a ${op} 5 } = Test;`);
+    const wire = beginCell().storeUint(tag, 32).storeUint(a, 8).endCell();
+    const value = { kind: 'Test', a };
     expect(runtime.decodeCell(wire)).toEqual(value);
     expect(runtime.encodeCell(value).equals(wire)).toBe(true);
 });

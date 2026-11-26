@@ -30,6 +30,8 @@ it.each([0, 40])('reads bit %i without rounding or truncation', (bit) => {
 
 it('rejects a width outside the safe integer range before reading a field', () => {
     const runtime = runtimeBy('_ n:(## 64) value:(uint n) = Box;');
-    const cell = beginCell().storeUint(wide + 1n, 64).endCell();
+    const cell = beginCell()
+        .storeUint(wide + 1n, 64)
+        .endCell();
     expect(() => runtime.decodeCell(cell, { rootType: 'Box' })).toThrow(/safe integer range/);
 });
