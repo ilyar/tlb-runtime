@@ -1,6 +1,16 @@
 import { beginCell } from '@ton/core';
 
-import { decodeCell, encodeCell, parseCell, ParsedCell, parseTLB, TLBRuntime, TLBSchemaError, unwrap } from './index';
+import {
+    decodeCell,
+    encodeCell,
+    parseCell,
+    ParsedCell,
+    parseTLB,
+    TLBDataError,
+    TLBRuntime,
+    TLBSchemaError,
+    unwrap,
+} from './index';
 
 interface Signed {
     kind: 'Signed';
@@ -96,5 +106,23 @@ describe('public encoding of alpha.4 records', () => {
         const pair = beginCell().storeUint(2, 8).storeUint(3, 8).endCell();
         expect(encodeCell(both, decodeCell(both, pair)).equals(pair)).toBe(true);
         expect(() => encodeCell(both, { kind: 'Foo', const0: 3 })).toThrow();
+    });
+});
+
+describe.each(['#< 3', '#<= 2'])('legacy bounded natural (%s)', (bound) => {
+    const runtime = parseTLB(`_ x:(${bound}) = T;`);
+    const options = { rootType: 'T', exact: true };
+
+    it('round-trips the largest permitted value', () => {
+        const cell = beginCell().storeUint(2, 2).endCell();
+        const data = { kind: 'T', x: 2 };
+        expect(runtime.decodeCell(cell, options)).toEqual(data);
+        expect(runtime.encodeCell(data).equals(cell)).toBe(true);
+    });
+
+    it('rejects the unused two-bit pattern on read and write', () => {
+        const cell = beginCell().storeUint(3, 2).endCell();
+        expect(() => runtime.decodeCell(cell, options)).toThrow(TLBDataError);
+        expect(() => runtime.encodeCell({ kind: 'T', x: 3 })).toThrow(TLBDataError);
     });
 });

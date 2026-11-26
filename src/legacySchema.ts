@@ -34,8 +34,18 @@ function fieldType(type: legacy.TLBFieldType): TLBFieldType {
                           ? 'MsgAddressExt'
                           : 'MsgAddress',
             };
-        case 'TLBNumberType':
-            return { kind: type.kind, signed: type.signed, bits: expression(type.bits), maxBits: type.maxBits };
+        case 'TLBNumberType': {
+            const bits = expression(type.bits);
+            // Codegen represents bounded naturals as bitLength(maximum) for both reading and writing.
+            const bounded = type.storeBits === type.bits && bits.kind === 'TLBUnaryOp' && bits.operation === '.';
+            return {
+                kind: type.kind,
+                signed: type.signed,
+                bits,
+                maxBits: type.maxBits,
+                ...(bounded && { upperBound: bits.value }),
+            };
+        }
         case 'TLBBitsType':
             return { ...type, bits: expression(type.bits) };
         case 'TLBVarIntegerType':

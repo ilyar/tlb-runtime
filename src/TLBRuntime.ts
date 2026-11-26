@@ -196,6 +196,10 @@ function bindNumericArgument(type: TLBFieldType, evaluator: MathExprEvaluator): 
     }
 }
 
+function checkNatUpperBound(value: number | bigint, maximum: number): void {
+    if (BigInt(value) > BigInt(maximum)) throw new TLBDataError('Natural number exceeds its schema bound');
+}
+
 function tagKey(tag: TLBConstructorTag): string {
     return `0b${BigInt(tag.binary).toString(2).padStart(tag.bitLen, '0')}`;
 }
@@ -2765,9 +2769,7 @@ export class TLBRuntime<T = ParsedCell> {
                     }
                 }
                 const val = this.loadBigInt(slice, bits, fieldType.signed);
-                if (fieldType.upperBound && val > BigInt(evaluator.evaluate(fieldType.upperBound))) {
-                    throw new TLBDataError('Natural number exceeds its schema bound');
-                }
+                if (fieldType.upperBound) checkNatUpperBound(val, evaluator.evaluate(fieldType.upperBound));
                 const maxBits = (fieldType as unknown as { maxBits?: number }).maxBits;
                 const preferNumber = maxBits !== undefined ? maxBits <= 32 : false;
                 if (!preferNumber && bits > 32) {
@@ -2924,7 +2926,9 @@ export class TLBRuntime<T = ParsedCell> {
                     if (slice.remainingBits < bits) {
                         throw new TLBDataError(`Not enough bits to read ${fieldType.name} (need ${bits} bits)`);
                     }
-                    return Number(slice.loadUint(bits));
+                    const value = slice.loadUint(bits);
+                    checkNatUpperBound(value, fieldType.name === '#<' ? n - 1 : n);
+                    return value;
                 }
 
                 // Handle uintN, intN, bitsN types before looking up in schema
@@ -4347,9 +4351,7 @@ export class TLBRuntime<T = ParsedCell> {
         switch (fieldType.kind) {
             case 'TLBNumberType': {
                 const bits = evaluator.evaluate(fieldType.bits);
-                if (fieldType.upperBound && BigInt(value) > BigInt(evaluator.evaluate(fieldType.upperBound))) {
-                    throw new TLBDataError('Natural number exceeds its schema bound');
-                }
+                if (fieldType.upperBound) checkNatUpperBound(value, evaluator.evaluate(fieldType.upperBound));
                 if (fieldType.signed) {
                     builder.storeInt(value, bits);
                 } else {
@@ -4520,7 +4522,7 @@ export class TLBRuntime<T = ParsedCell> {
                         bits = MathExprEvaluator.calculateBitsForLessThanOrEqual(n);
                     }
 
-                    // Serialize value using that many bits
+                    checkNatUpperBound(value, fieldType.name === '#<' ? n - 1 : n);
                     builder.storeUint(value, bits);
                     break;
                 }
