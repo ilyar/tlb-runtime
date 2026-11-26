@@ -14,6 +14,7 @@ import {
 
 import { compileLegacySchema } from './legacySchema';
 import { Schema } from './schema';
+import { readSnakeString, writeSnakeString } from './snake-string';
 import { type CellInput, decodeBits, stringToBits, toCell } from './common';
 import { MathExprEvaluator } from './MathExprEvaluator';
 import { Result, unwrap } from './Result';
@@ -154,6 +155,8 @@ export interface DecodeCellOptions {
 
 export interface TLBRuntimeConfig {
     autoText: boolean;
+    /** Maximum cells per SnakeString, including its first cell. Unlimited by default. */
+    maxSnakeDepth?: number;
 }
 
 // Runtime TL-B serialization/deserialization
@@ -173,6 +176,11 @@ export class TLBRuntime<T = ParsedCell> {
             return { types: schema.getTLBTypes(), lastTypeName: schema.lastTypeName };
         },
     ) {
+        if (
+            config.maxSnakeDepth !== undefined &&
+            (!Number.isSafeInteger(config.maxSnakeDepth) || config.maxSnakeDepth < 1)
+        )
+            throw new TLBSchemaError('maxSnakeDepth must be a positive safe integer');
         const compiled = compileSchema(schema);
         this.typeMap = compiled.types;
         this.lastTypeName = compiled.lastTypeName;
@@ -2824,7 +2832,8 @@ export class TLBRuntime<T = ParsedCell> {
                 }
 
                 if (fieldType.name === 'SnakeString') {
-                    return slice.loadStringTail();
+                    if (this.config.maxSnakeDepth === undefined) return slice.loadStringTail();
+                    return readSnakeString(slice, this.config.maxSnakeDepth);
                 }
                 if (fieldType.name === 'Any') {
                     // Read remaining slice into a new cell
@@ -4550,7 +4559,8 @@ export class TLBRuntime<T = ParsedCell> {
             case 'TLBNamedType': {
                 if (fieldType.name === 'SnakeString') {
                     if (typeof value !== 'string') throw new TLBDataError('SnakeString requires a string');
-                    builder.storeStringTail(value);
+                    if (this.config.maxSnakeDepth === undefined) builder.storeStringTail(value);
+                    else writeSnakeString(value, builder, this.config.maxSnakeDepth);
                     break;
                 }
                 if (fieldType.name === 'Any') {
@@ -5014,8 +5024,8 @@ export function runtimeBySchema<T = TypedCell>(schema: string): TLBRuntime<T> {
     return unwrap(TLBRuntime.from(schema));
 }
 
-export function runtimeBy<T = TypedCell>(schema: string | Cell): TLBRuntime<T> {
-    if (typeof schema === 'string') return unwrap(TLBRuntime.from(schema));
+export function runtimeBy<T = TypedCell>(schema: string | Cell, config?: Partial<TLBRuntimeConfig>): TLBRuntime<T> {
+    if (typeof schema === 'string') return unwrap(TLBRuntime.from<T>(schema, config));
     throw new TLBSchemaError('Not implemented');
 }
 
