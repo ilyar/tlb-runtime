@@ -1,6 +1,5 @@
 import { Address, BitString, Cell, ExternalAddress } from '@ton/core';
 
-import { TLBSchemaError, UnknownKindError } from './errors';
 import type { CellInput } from './common';
 import { runtimeBy, DecodeCellOptions, TypedCell, ParsedCell, parseTLB } from './TLBRuntime';
 
@@ -15,11 +14,10 @@ export function parseCell(schema: string, data: CellInput): ParsedCell {
 
 export function encodeCell(schema: string, data: unknown): Cell {
     try {
-        return runtimeBy(schema).encodeCell(data);
+        return parseTLB(schema).encodeCell(data);
     } catch (error) {
-        if (!(error instanceof TLBSchemaError || error instanceof UnknownKindError)) throw error;
         try {
-            return parseTLB(schema).encodeCell(data);
+            return runtimeBy(schema).encodeCell(data);
         } catch {
             throw error;
         }
