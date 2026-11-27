@@ -12,16 +12,9 @@ export function parseCell(schema: string, data: CellInput): ParsedCell {
     return parseTLB(schema).parseCell(data);
 }
 
+/** @deprecated Pairs with parseCell. For the current compiler, use runtimeBy(schema).encodeCell(data). */
 export function encodeCell(schema: string, data: unknown): Cell {
-    try {
-        return parseTLB(schema).encodeCell(data);
-    } catch (error) {
-        try {
-            return runtimeBy(schema).encodeCell(data);
-        } catch {
-            throw error;
-        }
-    }
+    return parseTLB(schema).encodeCell(data);
 }
 
 // FIXME
