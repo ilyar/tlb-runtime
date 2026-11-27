@@ -29,7 +29,7 @@ export interface ResolvedField {
     tlbType: string;
 }
 export interface ResolvedVariant {
-    kind: string;
+    kind?: string;
     constructorName: string;
     declaration: string;
     tag?: string;
@@ -355,7 +355,7 @@ export function resolveTypeGraph(
             }
             const tag = ctor.declaration.match(/^\s*[\w]+([#$][\da-fA-F_]+)/)?.[1];
             definition.variants.push({
-                kind: t.constructors.length === 1 ? t.name : t.name + '_' + ctor.name,
+                kind: t.isAnon ? undefined : t.constructors.length === 1 ? t.name : t.name + '_' + ctor.name,
                 constructorName: ctor.name,
                 declaration: ctor.declaration,
                 tag,

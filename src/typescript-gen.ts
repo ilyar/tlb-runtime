@@ -70,10 +70,8 @@ export function typescript(graph: ResolvedTypeGraph, options: TypeScriptOptions)
     }
     const blocks = [...graph.types.values()].map((t) => {
         const variants = t.variants.map((v) => {
-            const fields = [
-                comment(v.declaration) + 'kind: ' + JSON.stringify(v.kind) + ';',
-                ...v.fields.map(property),
-            ];
+            const fields = v.fields.map(property);
+            if (v.kind !== undefined) fields.unshift(comment(v.declaration) + 'kind: ' + JSON.stringify(v.kind) + ';');
             return '{\n' + indent(fields.join('\n')) + '\n}';
         });
         return (

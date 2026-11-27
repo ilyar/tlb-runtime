@@ -282,3 +282,10 @@ it('exports address variants and constructor choices accepted by the codec', () 
     expect(fields.i).toMatchObject({ type: 'string', 'x-tlb-type': 'MsgAddressInt' });
     expect(fields.e.oneOf).toEqual([{ type: 'string' }, { type: 'null' }]);
 });
+
+it('exports anonymous group records without a discriminator', () => {
+    const runtime = runtimeBy('_ r:^[ y:uint8 ] = C;');
+    const data = runtime.decodeCell(beginCell().storeRef(beginCell().storeUint(2, 8)).endCell());
+    expect(new Ajv().validate(runtime.toJSONSchema(), data)).toBe(true);
+    expect(runtime.toTypeScript()).not.toMatch(/kind: "TYPE_\d+"/);
+});
