@@ -65,6 +65,11 @@ export { TLBRuntimeError, TLBSchemaError, TLBDataError };
  * 2. When deserializing nested HashmapE n uint5, child context inherits n=5
  * 3. When deserializing field 'value:X', parameter X is resolved from context
  */
+const definingScope = Symbol('anonymous TL-B type scope');
+type ScopedField = TLBFieldType & {
+    [definingScope]?: { variables: Map<string, number | bigint>; context: ParameterContext };
+};
+
 class ParameterContext {
     private natParams: Map<string, number> = new Map();
     private typeParams: Map<string, TLBFieldType> = new Map();
@@ -1765,62 +1770,94 @@ export class TLBRuntime<T = ParsedCell> {
             }
         }
 
-        // Helper function to evaluate constraints and update variables
-        // This is called after each field is deserialized to compute values needed by subsequent fields
-        const evaluateConstraints = () => {
-            const evaluator = new MathExprEvaluator(variables);
-            for (const constraint of constructor.constraints) {
-                try {
-                    // Try to evaluate constraint
-                    let result: number;
-                    try {
-                        result = evaluator.evaluate(constraint);
-                        // Constraint satisfied or already fully determined
-                        if (result === 1) continue;
-                    } catch (evalError) {
-                        // Evaluation failed, possibly because of undefined variables
-                        // Try to solve for one unknown variable if it's an equality
-                        if (constraint.kind === 'TLBBinaryOp' && constraint.operation === '=') {
-                            const solved = this.solveEquality(constraint, variables, evaluator);
-                            if (solved) {
-                                variables.set(solved.name, solved.value);
-                                childContext.setNat(solved.name, solved.value);
-                                continue;
+        const computedImplicitValues = new Map<string, number | bigint>();
+        const solveConstraints = () =>
+            this.solveConstraints(constructor.constraints, variables, (name, n) => {
+                computedImplicitValues.set(name, n);
+                childContext.setNat(name, n);
+            });
+        const finishField = (field: TLBField, fieldName: string) => {
+            // A reference changes the wire location but preserves the result arguments of its type.
+            let resultType = field.fieldType;
+            while (resultType.kind === 'TLBRefType' || resultType.kind === 'TLBCellInsideType') {
+                resultType = resultType.value;
+            }
+            if (
+                resultType.kind === 'TLBNamedType' &&
+                typeof value[fieldName] === 'object' &&
+                value[fieldName] !== null
+            ) {
+                for (let k = 0; k < resultType.arguments.length; k++) {
+                    const arg = resultType.arguments[k];
+                    const resVal = this.resultArgs.get(value[fieldName])?.[k];
+
+                    if (typeof resVal === 'number') {
+                        let expr: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+                        if (arg.kind === 'TLBExprMathType') {
+                            expr = arg.initialExpr;
+                        } else if (arg.kind === 'TLBNumberType') {
+                            expr = arg.bits;
+                        }
+
+                        if (arg.kind === 'TLBNegatedType') {
+                            variables.set(arg.variableName, resVal);
+                            childContext.setNat(arg.variableName, resVal);
+                        }
+                        if (expr) {
+                            // Handle simple variable binding: ~var or var
+                            let varName: string | undefined;
+                            if (expr.kind === 'TLBVarExpr') {
+                                varName = expr.x;
+                            } else if (
+                                expr.kind === 'TLBUnaryOp' &&
+                                expr.operation === '~' &&
+                                expr.value.kind === 'TLBVarExpr'
+                            ) {
+                                varName = expr.value.x;
+                            }
+
+                            if (varName) {
+                                // Map positional aliases (e.g. _3) back to actual variable names (e.g. l)
+                                let actualVarName = varName;
+                                if (varName.startsWith('_')) {
+                                    const idx = parseInt(varName.substring(1), 10);
+                                    if (!isNaN(idx) && idx >= 1 && idx <= constructor.variables.length) {
+                                        actualVarName = constructor.variables[idx - 1].name;
+                                    }
+                                }
+                                variables.set(actualVarName, resVal);
+                                childContext.setNat(actualVarName, resVal);
                             }
                         }
-                        // Skip constraint validation if variables are not yet defined
-                        const errorMsg = evalError instanceof Error ? evalError.message : String(evalError);
-                        if (errorMsg.includes('not defined')) {
-                            continue;
-                        }
-                        // Skip non-critical errors during interleaved evaluation
-                        continue;
                     }
+                }
+            }
 
-                    // If result is 0 and it's an equality, try to solve it
-                    if (result !== 1 && constraint.kind === 'TLBBinaryOp' && constraint.operation === '=') {
-                        const solved = this.solveEquality(constraint, variables, evaluator);
-                        if (solved) {
-                            variables.set(solved.name, solved.value);
-                            childContext.setNat(solved.name, solved.value);
-                            continue;
-                        }
-                    }
-                } catch (error) {
-                    // Skip errors during interleaved constraint evaluation
-                    void error;
+            // Phase 3: Interleave constraint evaluation after each field
+            // This allows computed values to be available for subsequent field arguments
+            solveConstraints();
+
+            // Update positional aliases after evaluating constraints
+            // This ensures _4 (for m) gets updated if m was just computed
+            for (let i = 0; i < constructor.variables.length; i++) {
+                const v = constructor.variables[i];
+                const val = variables.get(v.name);
+                if (val !== undefined) {
+                    variables.set(`_${i + 1}`, val);
                 }
             }
         };
-
         const readField = (field: TLBField, source: Slice) =>
             this.deserializeField(field, source, variables, constructor, args, childContext);
         function* readReferencedFields(fields: TLBField[], source: Slice): DecodeFrame<T, void> {
             for (const field of fields) {
+                if (field.implicit) continue;
                 if (field.subFields.length) {
                     yield* readReferencedFields(field.subFields, source.loadRef().beginParse());
                 } else {
-                    value[field.name || `anon${anonFieldIndex++}`] = yield* readField(field, source);
+                    const name = field.name || `anon${anonFieldIndex++}`;
+                    value[name] = yield* readField(field, source);
+                    finishField(field, name);
                 }
             }
         }
@@ -1956,75 +1993,7 @@ export class TLBRuntime<T = ParsedCell> {
                     childContext,
                 );
 
-                // A reference changes the wire location but preserves the result arguments of its type.
-                let resultType = field.fieldType;
-                while (resultType.kind === 'TLBRefType' || resultType.kind === 'TLBCellInsideType') {
-                    resultType = resultType.value;
-                }
-                if (
-                    resultType.kind === 'TLBNamedType' &&
-                    typeof value[fieldName] === 'object' &&
-                    value[fieldName] !== null
-                ) {
-                    for (let k = 0; k < resultType.arguments.length; k++) {
-                        const arg = resultType.arguments[k];
-                        const resVal = this.resultArgs.get(value[fieldName])?.[k];
-
-                        if (typeof resVal === 'number') {
-                            let expr: any; // eslint-disable-line @typescript-eslint/no-explicit-any
-                            if (arg.kind === 'TLBExprMathType') {
-                                expr = arg.initialExpr;
-                            } else if (arg.kind === 'TLBNumberType') {
-                                expr = arg.bits;
-                            }
-
-                            if (arg.kind === 'TLBNegatedType') {
-                                variables.set(arg.variableName, resVal);
-                                childContext.setNat(arg.variableName, resVal);
-                            }
-                            if (expr) {
-                                // Handle simple variable binding: ~var or var
-                                let varName: string | undefined;
-                                if (expr.kind === 'TLBVarExpr') {
-                                    varName = expr.x;
-                                } else if (
-                                    expr.kind === 'TLBUnaryOp' &&
-                                    expr.operation === '~' &&
-                                    expr.value.kind === 'TLBVarExpr'
-                                ) {
-                                    varName = expr.value.x;
-                                }
-
-                                if (varName) {
-                                    // Map positional aliases (e.g. _3) back to actual variable names (e.g. l)
-                                    let actualVarName = varName;
-                                    if (varName.startsWith('_')) {
-                                        const idx = parseInt(varName.substring(1), 10);
-                                        if (!isNaN(idx) && idx >= 1 && idx <= constructor.variables.length) {
-                                            actualVarName = constructor.variables[idx - 1].name;
-                                        }
-                                    }
-                                    variables.set(actualVarName, resVal);
-                                    childContext.setNat(actualVarName, resVal);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Phase 3: Interleave constraint evaluation after each field
-                // This allows computed values to be available for subsequent field arguments
-                evaluateConstraints();
-
-                // Update positional aliases after evaluating constraints
-                // This ensures _4 (for m) gets updated if m was just computed
-                for (let i = 0; i < constructor.variables.length; i++) {
-                    const v = constructor.variables[i];
-                    const val = variables.get(v.name);
-                    if (val !== undefined) {
-                        variables.set(`_${i + 1}`, val);
-                    }
-                }
+                finishField(field, fieldName);
             }
         }
 
@@ -2089,52 +2058,10 @@ export class TLBRuntime<T = ParsedCell> {
 
         // Check constraints and compute implicit values
         const evaluator = new MathExprEvaluator(variables);
-        const computedImplicitValues = new Map<string, number | bigint>();
-
+        solveConstraints();
         for (const constraint of constructor.constraints) {
             try {
-                // Try to evaluate constraint
-                let result: number;
-                try {
-                    result = evaluator.evaluate(constraint);
-                    // Constraint satisfied or already fully determined
-                    if (result === 1) continue;
-                } catch (evalError) {
-                    // Evaluation failed, possibly because of undefined variables
-                    // Try to solve for one unknown variable if it's an equality
-                    if (constraint.kind === 'TLBBinaryOp' && constraint.operation === '=') {
-                        const solved = this.solveEquality(constraint, variables, evaluator);
-                        if (solved) {
-                            variables.set(solved.name, solved.value);
-                            computedImplicitValues.set(solved.name, solved.value);
-                            // US-006 Phase 3: Add computed value to context immediately
-                            // so it's available when resolving nested type arguments
-                            childContext.setNat(solved.name, solved.value);
-                            continue;
-                        }
-                    }
-                    // Skip constraint validation if variables are not yet defined (implicit parameters)
-                    // They will be validated after fields are deserialized
-                    const errorMsg = evalError instanceof Error ? evalError.message : String(evalError);
-                    if (errorMsg.includes('not defined')) {
-                        // Skip this constraint for now - it will be checked after implicit parameters are inferred
-                        continue;
-                    }
-                    throw new TLBDataError(`Constraint evaluation failed for ${type.name}: ${errorMsg}`);
-                }
-
-                // If result is 0 and it's an equality, try to solve it
-                if (result !== 1 && constraint.kind === 'TLBBinaryOp' && constraint.operation === '=') {
-                    const solved = this.solveEquality(constraint, variables, evaluator);
-                    if (solved) {
-                        variables.set(solved.name, solved.value);
-                        computedImplicitValues.set(solved.name, solved.value);
-                        // US-006 Phase 3: Add computed value to context immediately
-                        childContext.setNat(solved.name, solved.value);
-                        continue;
-                    }
-                }
-
+                const result = evaluator.evaluate(constraint);
                 // Validate constraint: should evaluate to 1 (true)
                 if (result !== 1) {
                     return {
@@ -2960,9 +2887,14 @@ export class TLBRuntime<T = ParsedCell> {
                             }
                         }
 
-                        return context ? this.bindTypeParameters(arg, context.getAllTypeParams()) : arg;
+                        return arg;
                     })
-                    .map((arg) => bindNumericArgument(arg, evaluator));
+                    .map((arg) =>
+                        bindNumericArgument(
+                            this.bindTypeParameters(arg, context?.getAllTypeParams() ?? new Map(), variables),
+                            evaluator,
+                        ),
+                    );
                 const childVars = new Map<string, number | bigint>();
                 const parentEvaluator = new MathExprEvaluator(variables);
                 // Track which parameters are negated (need to propagate computed values back)
@@ -3071,8 +3003,16 @@ export class TLBRuntime<T = ParsedCell> {
                     type,
                     slice,
                     forwardedArgs,
-                    type.isAnon ? variables : type.constructors[0]?.resultParameters ? undefined : childVars,
-                    type.isAnon ? context : type.constructors[0]?.resultParameters ? undefined : nestedContext,
+                    type.isAnon
+                        ? ((fieldType as ScopedField)[definingScope]?.variables ?? variables)
+                        : type.constructors[0]?.resultParameters
+                          ? undefined
+                          : childVars,
+                    type.isAnon
+                        ? ((fieldType as ScopedField)[definingScope]?.context ?? context)
+                        : type.constructors[0]?.resultParameters
+                          ? undefined
+                          : nestedContext,
                 );
                 if (!typeResult.success) {
                     if (typeResult.error instanceof UnsupportedAddressError) throw typeResult.error;
@@ -3450,7 +3390,7 @@ export class TLBRuntime<T = ParsedCell> {
                     target.storeRef(nested.endCell());
                     continue;
                 }
-                let fieldType = this.bindTypeParameters(field.fieldType, typeParams);
+                let fieldType = this.bindTypeParameters(field.fieldType, typeParams, variables);
                 while (
                     fieldType.kind === 'TLBCondType' &&
                     new MathExprEvaluator(variables).evaluate(fieldType.condition)
@@ -3477,6 +3417,7 @@ export class TLBRuntime<T = ParsedCell> {
                 }
                 if (fieldValue === undefined) throw new TLBDataError(`Missing required field ${name} in ${type.name}`);
                 this.serializeField({ ...field, fieldType }, fieldValue, target, variables, typeParams);
+                this.solveConstraints(constructor.constraints, variables);
             }
         };
         writeFields(constructor.fields, builder);
@@ -4187,18 +4128,28 @@ export class TLBRuntime<T = ParsedCell> {
         this.serializeFieldType(field.fieldType, value, builder, variables, typeParams);
     }
 
-    private bindTypeParameters(type: TLBFieldType, params: Map<string, TLBFieldType>): TLBFieldType {
-        if (!params.size) return type;
+    private bindTypeParameters(
+        type: TLBFieldType,
+        params: Map<string, TLBFieldType>,
+        variables?: Map<string, number | bigint>,
+    ): TLBFieldType {
+        if ((type as ScopedField)[definingScope]) return type;
+        if (variables && type.kind === 'TLBNamedType' && this.typeMap.get(type.name)?.isAnon) {
+            const context = new ParameterContext();
+            for (const [name, argument] of params) context.setType(name, argument);
+            return { ...type, [definingScope]: { variables: new Map(variables), context } } as ScopedField;
+        }
+        if (!params.size && !variables) return type;
         if (type.kind === 'TLBNamedType') {
             return (
                 params.get(type.name) ?? {
                     ...type,
-                    arguments: type.arguments.map((arg) => this.bindTypeParameters(arg, params)),
+                    arguments: type.arguments.map((arg) => this.bindTypeParameters(arg, params, variables)),
                 }
             );
         }
         if ('value' in type && type.value && typeof type.value === 'object') {
-            return { ...type, value: this.bindTypeParameters(type.value, params) } as TLBFieldType;
+            return { ...type, value: this.bindTypeParameters(type.value, params, variables) } as TLBFieldType;
         }
         return type;
     }
@@ -4535,7 +4486,15 @@ export class TLBRuntime<T = ParsedCell> {
                     }
                 }
 
-                this.serializeType(type, value, builder, fieldType.arguments, variables, typeParams);
+                const scope = (fieldType as ScopedField)[definingScope];
+                this.serializeType(
+                    type,
+                    value,
+                    builder,
+                    fieldType.arguments,
+                    scope?.variables ?? variables,
+                    scope?.context.getAllTypeParams() ?? typeParams,
+                );
                 break;
             }
 
@@ -4693,6 +4652,25 @@ export class TLBRuntime<T = ParsedCell> {
                 );
             }
         }
+    }
+
+    private solveConstraints(
+        constraints: _TLBMathExpr[],
+        variables: Map<string, number | bigint>,
+        onBind?: (name: string, value: number) => void,
+    ) {
+        const evaluator = new MathExprEvaluator(variables);
+        let changed: boolean;
+        do {
+            changed = false;
+            for (const constraint of constraints) {
+                const solved = this.solveEquality(constraint, variables, evaluator);
+                if (!solved) continue;
+                variables.set(solved.name, solved.value);
+                onBind?.(solved.name, solved.value);
+                changed = true;
+            }
+        } while (changed);
     }
 
     private solveEquality(

@@ -1179,6 +1179,7 @@ export class Schema {
                     firstArg.tchkOnly,
                     firstArg.isConstexpr,
                 );
+                negatedFirstArg.paramName = firstArg.paramName;
                 // Create new Add/Mul expression with negated first arg
                 const newExpr = new TypeExpr(
                     innerExpr.tp,
@@ -1206,6 +1207,7 @@ export class Schema {
                 innerExpr.tchkOnly,
                 innerExpr.isConstexpr,
             );
+            negatedExpr.paramName = innerExpr.paramName;
             return this.registerConstExpr(negatedExpr);
         }
 
