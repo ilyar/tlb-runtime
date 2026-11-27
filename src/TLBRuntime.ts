@@ -15,7 +15,8 @@ import {
 
 import { compileLegacySchema, legacyFieldName } from './legacySchema';
 import { Schema } from './schema';
-import { decodeBits, stringToBits, toCell } from './common';
+import { readSnakeString, writeSnakeString } from './snake-string';
+import { type CellInput, decodeBits, stringToBits, toCell } from './common';
 import { MathExprEvaluator, safeExpressionNumber } from './MathExprEvaluator';
 import { Result, unwrap } from './Result';
 import { TLBRuntimeError, TLBSchemaError, TLBDataError, UnknownKindError } from './errors';
@@ -210,6 +211,8 @@ function tagKey(tag: TLBConstructorTag): string {
 
 export interface DecodeCellOptions {
     rootType?: string;
+    /** Require the selected constructor to consume every bit and reference in the root cell. */
+    exact?: boolean;
     /** Numeric TL-B arguments in result-type order, e.g. [4] for "Tree 4". */
     args?: readonly number[];
 }
@@ -219,6 +222,8 @@ class DecodeDepthError extends TLBRuntimeError {}
 
 export interface TLBRuntimeConfig {
     autoText: boolean;
+    /** Maximum cells per SnakeString, including its first cell. Unlimited by default. */
+    maxSnakeDepth?: number;
     /** Maximum active named types when decoding, including inline wrappers. Defaults to 4096. */
     maxDecodeDepth?: number;
 }
@@ -240,6 +245,11 @@ export class TLBRuntime<T = ParsedCell> {
             return { types: schema.getTLBTypes(), lastTypeName: schema.lastTypeName };
         },
     ) {
+        if (
+            config.maxSnakeDepth !== undefined &&
+            (!Number.isSafeInteger(config.maxSnakeDepth) || config.maxSnakeDepth < 1)
+        )
+            throw new TLBSchemaError('maxSnakeDepth must be a positive safe integer');
         if (
             config.maxDecodeDepth !== undefined &&
             (!Number.isSafeInteger(config.maxDecodeDepth) || config.maxDecodeDepth < 1)
@@ -309,12 +319,12 @@ export class TLBRuntime<T = ParsedCell> {
         return TLBRuntime.create(schema, this.config, this.compileSchema);
     }
 
-    decodeCell(data: Cell | string, options?: DecodeCellOptions): DecodedRoot<T> {
+    decodeCell(data: CellInput, options?: DecodeCellOptions): DecodedRoot<T> {
         return unwrap(this.deserialize(data, options)) as DecodedRoot<T>;
     }
 
     /** @deprecated Use decodeCell instead. */
-    parseCell(data: Cell | string): ParsedCell {
+    parseCell(data: CellInput): ParsedCell {
         return this.decodeCell(data);
     }
 
@@ -345,7 +355,7 @@ export class TLBRuntime<T = ParsedCell> {
         return null;
     }
 
-    deserialize(data: Cell | string, options: boolean | DecodeCellOptions = false): Result<T> {
+    deserialize(data: CellInput, options: boolean | DecodeCellOptions = false): Result<T> {
         try {
             return this.decodeRoot(data, options);
         } catch (error) {
@@ -354,12 +364,12 @@ export class TLBRuntime<T = ParsedCell> {
         }
     }
 
-    private decodeRoot(data: Cell | string, options: boolean | DecodeCellOptions): Result<T> {
-        const parsed = typeof data === 'string' ? toCell(data) : { success: true as const, value: data };
+    private decodeRoot(data: CellInput, options: boolean | DecodeCellOptions): Result<T> {
+        const parsed = toCell(data);
         if (!parsed.success) return parsed;
         const slice = parsed.value.asSlice();
         const findByTag = options === true;
-        const { rootType, args } = typeof options === 'boolean' ? {} : options;
+        const { rootType, args, exact = false } = typeof options === 'boolean' ? {} : options;
         if (rootType !== undefined) {
             const type = this.typeMap.get(rootType);
             if (!type) return { success: false, error: new TLBDataError(`Unknown root type: ${rootType}`) };
@@ -371,7 +381,7 @@ export class TLBRuntime<T = ParsedCell> {
             }));
             if (!type.constructors.some((c) => c.parameters.length >= bindings.length))
                 return { success: false, error: new TLBDataError(`Too many arguments for ${type.name}`) };
-            return this.runDecode(this.deserializeType(type, slice, bindings));
+            return this.runDecode(this.deserializeType(type, slice, bindings, undefined, undefined, exact));
         }
         if (args !== undefined)
             return { success: false, error: new TLBDataError('Numeric arguments require a root type') };
@@ -387,13 +397,13 @@ export class TLBRuntime<T = ParsedCell> {
             if (name === undefined) continue;
             const type = this.typeMap.get(name);
             if (!type) continue;
-            const result = this.runDecode(this.deserializeType(type, slice.clone(), []));
+            const result = this.runDecode(this.deserializeType(type, slice.clone(), [], undefined, undefined, exact));
             if (result.success || (name === this.lastTypeName && result.error instanceof UnsupportedAddressError))
                 return result;
         }
         return {
             success: false,
-            error: new TLBDataError('No matching constructor'),
+            error: new TLBDataError(exact ? 'No root type consumed the entire cell' : 'No matching constructor'),
         };
     }
 
@@ -484,6 +494,7 @@ export class TLBRuntime<T = ParsedCell> {
         args: TLBFieldType[] = [],
         initialVariables?: Map<string, number | bigint>,
         context?: ParameterContext,
+        exact = false,
     ): DecodeFrame<T> {
         // If type has implicit parameters and we have type arguments,
         // build a context from type arguments before trying constructors
@@ -541,6 +552,7 @@ export class TLBRuntime<T = ParsedCell> {
             : type.constructors;
         const matchTags = type.constructors.length > 1;
 
+        let partialMatch: TLBDataError | undefined;
         let lastError: Error | undefined;
         for (const constructor of constructorsToTry) {
             if (matchTags && constructor.tag.bitLen) {
@@ -558,6 +570,12 @@ export class TLBRuntime<T = ParsedCell> {
                     context,
                 );
                 if (result.success) {
+                    if (exact && (prev.remainingBits || prev.remainingRefs)) {
+                        partialMatch = new TLBDataError(
+                            `${type.name}: ${prev.remainingBits} bits and ${prev.remainingRefs} refs remaining`,
+                        );
+                        continue;
+                    }
                     const bitsUsed = data.remainingBits - prev.remainingBits;
                     const refsUsed = data.remainingRefs - prev.remainingRefs;
 
@@ -585,7 +603,9 @@ export class TLBRuntime<T = ParsedCell> {
         return {
             success: false,
             error:
-                lastError ?? new TLBDataError(`Failed to deserialize type ${type.name}: no matching constructor found`),
+                partialMatch ??
+                lastError ??
+                new TLBDataError(`Failed to deserialize type ${type.name}: no matching constructor found`),
         };
     }
 
@@ -2799,6 +2819,10 @@ export class TLBRuntime<T = ParsedCell> {
                     return readAddress(slice, fieldType.name);
                 }
 
+                if (fieldType.name === 'SnakeString') {
+                    if (this.config.maxSnakeDepth === undefined) return slice.loadStringTail();
+                    return readSnakeString(slice, this.config.maxSnakeDepth);
+                }
                 if (fieldType.name === 'Any') {
                     return loadRemainingCell(slice);
                 }
@@ -4313,6 +4337,12 @@ export class TLBRuntime<T = ParsedCell> {
             }
 
             case 'TLBNamedType': {
+                if (fieldType.name === 'SnakeString') {
+                    if (typeof value !== 'string') throw new TLBDataError('SnakeString requires a string');
+                    if (this.config.maxSnakeDepth === undefined) builder.storeStringTail(value);
+                    else writeSnakeString(value, builder, this.config.maxSnakeDepth);
+                    break;
+                }
                 if (fieldType.name === 'Any') {
                     builder.storeSlice(value.beginParse());
                     break;

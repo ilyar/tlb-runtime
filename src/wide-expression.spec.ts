@@ -21,7 +21,7 @@ it.each([0, 40])('reads bit %i without rounding or truncation', (bit) => {
         const builder = beginCell().storeUint(flags, 64);
         if (set) builder.storeUint(42, 8);
         const cell = builder.endCell();
-        const data = runtime.decodeCell(cell, { rootType: 'Flags' });
+        const data = runtime.decodeCell(cell, { rootType: 'Flags', exact: true });
         expect(data.flags).toBe(flags);
         expect(data.x).toBe(set ? 42 : undefined);
         expect(runtime.encodeCell(data).equals(cell)).toBe(true);

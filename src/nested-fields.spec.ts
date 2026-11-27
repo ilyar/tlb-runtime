@@ -8,7 +8,7 @@ describe('variable-width numeric type arguments', () => {
         const runtime = runtimeBy(TLBStd.Maybe + '_ {X:Type} v:X = Box X; _ n:uint4 p:(Box (Maybe (uint n))) = Outer;');
         const wire = beginCell().storeUint(3, 4).storeBit(true).storeUint(6, 3).endCell();
         const data = { kind: 'Outer', n: 3, p: { kind: 'Box', v: { kind: 'Maybe_just', value: 6 } } };
-        expect(runtime.decodeCell(wire, { rootType: 'Outer' })).toEqual(data);
+        expect(runtime.decodeCell(wire, { rootType: 'Outer', exact: true })).toEqual(data);
         expect(runtime.encodeCell(data).equals(wire)).toBe(true);
     });
 
@@ -21,14 +21,14 @@ describe('variable-width numeric type arguments', () => {
         );
         const wire = beginCell().storeUint(3, 4).storeUint(1, 4).storeBit(true).storeUint(6, width).endCell();
         const data = { kind: 'Outer', n: 3, p: { kind: 'Box', n: 1, v: { kind: 'Maybe_just', value: 6 } } };
-        expect(runtime.decodeCell(wire, { rootType: 'Outer' })).toEqual(data);
+        expect(runtime.decodeCell(wire, { rootType: 'Outer', exact: true })).toEqual(data);
         expect(runtime.encodeCell(data).equals(wire)).toBe(true);
     });
 
     it.each(['##', 'uint', 'int'])('reads Maybe (%s n) with the width in the enclosing cell', (type) => {
         const r = runtimeBy(TLBStd.Maybe + `_ n:uint4 field:(Maybe (${type} n)) = Root;`);
         const cell = beginCell().storeUint(3, 4).storeBit(true).storeUint(6, 3).endCell();
-        expect(r.decodeCell(cell, { rootType: 'Root' })).toEqual({
+        expect(r.decodeCell(cell, { rootType: 'Root', exact: true })).toEqual({
             kind: 'Root',
             n: 3,
             field: { kind: 'Maybe_just', value: type === 'int' ? -2 : 6 },
@@ -41,7 +41,7 @@ describe('variable-width numeric type arguments', () => {
     ] as const)('preserves both Either parameter slots for tag %i', (tag, width, value, kind) => {
         const r = runtimeBy(TLBStd.Either + '_ n:uint4 field:(Either (uint n) uint8) = Root;');
         const cell = beginCell().storeUint(3, 4).storeBit(tag).storeUint(value, width).endCell();
-        expect(r.decodeCell(cell, { rootType: 'Root' })).toEqual({
+        expect(r.decodeCell(cell, { rootType: 'Root', exact: true })).toEqual({
             kind: 'Root',
             n: 3,
             field: { kind, value },
@@ -75,7 +75,7 @@ describe.each([runtimeBy, parseTLB])('address tags with %p', (compile) => {
     ] as const)('accepts %s with %s', (type, address) => {
         const runtime = addressRuntime(type);
         const wire = beginCell().storeAddress(address).endCell();
-        const decoded = runtime.decodeCell(wire, { rootType: 'Root' });
+        const decoded = runtime.decodeCell(wire, { rootType: 'Root', exact: true });
         expect(String(decoded.address)).toBe(String(address));
         expect(runtime.encodeCell({ kind: 'Root', address }).equals(wire)).toBe(true);
     });
