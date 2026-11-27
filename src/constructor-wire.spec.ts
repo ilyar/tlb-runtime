@@ -20,3 +20,12 @@ it('preserves the empty tag encoded by #8_', () => {
     expect(runtime.decodeCell(wire)).toEqual(value);
     expect(runtime.encodeCell(value).equals(wire)).toBe(true);
 });
+
+it('uses the real declaration after commented-out constructors', () => {
+    const r = runtimeBy('/* note;\nfoo#_ x:uint8 = Foo;\n*/\n// foo$0 = Foo;\nfoo#ab x:uint8 = Foo;');
+    const wire = beginCell().storeUint(0xab07, 16).endCell();
+    const value = { kind: 'Foo', x: 7 };
+    expect(r.getTypes().get('Foo')?.constructors[0].declaration).toBe('foo#ab x:uint8 = Foo;');
+    expect(r.decodeCell(wire)).toEqual(value);
+    expect(r.encodeCell(value).equals(wire)).toBe(true);
+});

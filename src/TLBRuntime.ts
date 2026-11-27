@@ -184,7 +184,7 @@ function bindNumericArgument(type: TLBFieldType, evaluator: MathExprEvaluator): 
         case 'TLBExprMathType':
             return { ...type, initialExpr: bind(type.initialExpr) };
         case 'TLBVarIntegerType':
-            return { ...type, n: bind(type.n) };
+            return { ...type, n: bind(type.n), ...(type.upperBound && { upperBound: bind(type.upperBound) }) };
         case 'TLBMultipleType':
             return { ...type, times: bind(type.times), value: bindNumericArgument(type.value, evaluator) };
         case 'TLBHashmapType':
@@ -386,7 +386,7 @@ export class TLBRuntime<T = ParsedCell> {
         for (const name of names) {
             if (name === undefined) continue;
             const type = this.typeMap.get(name);
-            if (!type) continue;
+            if (!type || type.isAnon) continue;
             const result = this.runDecode(this.deserializeType(type, slice.clone(), []));
             if (result.success || (name === this.lastTypeName && result.error instanceof UnsupportedAddressError))
                 return result;
@@ -643,6 +643,7 @@ export class TLBRuntime<T = ParsedCell> {
         // First, extract explicit Nat and Type parameters from args and add to context
         // Only process parameters that are actually provided in args
         const paramEvaluator = new MathExprEvaluator(variables);
+        const resultArguments: { expression: _TLBMathExpr; expected: number }[] = [];
         let argIndex = 0;
         for (const param of constructor.parameters) {
             if (argIndex >= args.length) {
@@ -666,8 +667,14 @@ export class TLBRuntime<T = ParsedCell> {
                         natValue = value === undefined ? undefined : safeExpressionNumber(value);
                     }
                     if (typeof natValue === 'number' && param.variable.name) {
-                        childContext.setNat(param.variable.name, natValue);
-                        variables.set(param.variable.name, natValue);
+                        const result = param.paramExpr;
+                        if (!param.variable.negated && result && result.kind !== 'TLBVarExpr') {
+                            resultArguments.push({ expression: result, expected: natValue });
+                        } else {
+                            childContext.setNat(param.variable.name, natValue);
+                            variables.set(param.variable.name, natValue);
+                        }
+                        if (param.argName) variables.set(param.argName, natValue);
                     }
                 } catch (e) {
                     void e;
@@ -722,63 +729,21 @@ export class TLBRuntime<T = ParsedCell> {
             }
         }
 
-        // Initialize variables from constructor parameters (from type arguments)
-        if (args.length > 0 && constructor.parameters.length > 0) {
-            const evaluator = new MathExprEvaluator(variables);
-            for (let i = 0; i < Math.min(args.length, constructor.parameters.length); i++) {
-                const param = constructor.parameters[i];
-                const arg = args[i];
-
-                let argValue: number | undefined = undefined;
-                try {
-                    if (arg.kind === 'TLBExprMathType') {
-                        // Evaluate provided argument initial expression for binding
-                        argValue = evaluator.evaluate(arg.initialExpr);
-                    } else if (arg.kind === 'TLBNumberType') {
-                        argValue = evaluator.evaluate(arg.bits);
-                    } else if (arg.kind === 'TLBNamedType' && arg.name) {
-                        // Type argument is a parameter reference (e.g., n from ParamType n)
-                        // Try to get value from variables map
-                        const varValue = variables.get(arg.name);
-                        if (typeof varValue === 'number') {
-                            argValue = varValue;
-                        }
-                    }
-                } catch (error) {
-                    void error;
-                }
-
-                if (param.argName && typeof argValue === 'number') {
-                    variables.set(param.argName, argValue);
-                }
-
-                if (param.variable.type === '#' && argValue !== undefined && !param.variable.negated) {
-                    const expression = constructor.resultParameters?.[i] ?? param.paramExpr;
-                    if (!expression || expression.kind === 'TLBNumberExpr') continue;
-                    const scope = new Map(variables);
-                    scope.delete(param.variable.name);
-                    const idx = constructor.variables.findIndex((v) => v.name === param.variable.name);
-                    scope.delete(`_${idx + 1}`);
-                    const solved = this.solveEquality(
-                        {
-                            kind: 'TLBBinaryOp',
-                            operation: '=',
-                            left: expression,
-                            right: { kind: 'TLBNumberExpr', n: argValue },
-                        },
-                        scope,
-                        new MathExprEvaluator(scope),
-                    );
-                    if (solved) {
-                        if (!Number.isSafeInteger(solved.value) || solved.value < 0) {
-                            return { success: false, error: new TLBDataError(`Invalid natural parameter for ${kind}`) };
-                        }
-                        variables.set(param.variable.name, solved.value);
-                        variables.set(solved.name, solved.value);
-                        childContext.setNat(param.variable.name, solved.value);
-                    }
-                }
+        // Legacy compiler contexts can seed formal parameters with the raw result argument.
+        // Only simple parameters are direct bindings; compound expressions must infer their operands.
+        const directBindings = new Set(
+            constructor.parameters
+                .filter((p, i) => args[i] && p.paramExpr?.kind === 'TLBVarExpr')
+                .map((p) => p.variable.name),
+        );
+        for (const { expression } of resultArguments) {
+            for (const name of this.extractVariablesFromExpr(expression)) {
+                if (!directBindings.has(name)) variables.delete(name);
             }
+        }
+        this.bindResultArguments(resultArguments, variables, type.name);
+        for (const [name, value] of variables) {
+            if (typeof value === 'number') childContext.setNat(name, value);
         }
 
         // Fallback: some schemas keep numeric variables only in `variables` and not in `parameters`.
@@ -2768,20 +2733,21 @@ export class TLBRuntime<T = ParsedCell> {
 
             case 'TLBNamedType': {
                 const parameter = ctxConstructor.parametersMap.get(fieldType.name);
-                if (parameter?.variable.type === 'Type') {
-                    const index = ctxConstructor.parameters.indexOf(parameter);
-                    const argument = context?.resolveType(fieldType.name) ?? ctxArgs[index];
-                    // A concrete argument can have the same name as the formal parameter.
-                    if (argument && !(argument.kind === 'TLBNamedType' && argument.name === fieldType.name)) {
-                        return yield* this.deserializeFieldType(
-                            argument,
-                            slice,
-                            variables,
-                            ctxConstructor,
-                            ctxArgs,
-                            context,
-                        );
-                    }
+                const argument =
+                    context?.resolveType(fieldType.name) ??
+                    (parameter?.variable.type === 'Type'
+                        ? ctxArgs[ctxConstructor.parameters.indexOf(parameter)]
+                        : undefined);
+                // A concrete argument can have the same name as the formal parameter.
+                if (argument && !(argument.kind === 'TLBNamedType' && argument.name === fieldType.name)) {
+                    return yield* this.deserializeFieldType(
+                        argument,
+                        slice,
+                        variables,
+                        ctxConstructor,
+                        ctxArgs,
+                        context,
+                    );
                 }
                 if (fieldType.name === 'Bool') {
                     // Bool type has two constructors: bool_false$0 and bool_true$1
@@ -3081,8 +3047,8 @@ export class TLBRuntime<T = ParsedCell> {
                     type,
                     slice,
                     forwardedArgs,
-                    type.constructors[0]?.resultParameters ? undefined : childVars,
-                    type.constructors[0]?.resultParameters ? undefined : nestedContext,
+                    type.isAnon ? variables : type.constructors[0]?.resultParameters ? undefined : childVars,
+                    type.isAnon ? context : type.constructors[0]?.resultParameters ? undefined : nestedContext,
                 );
                 if (!typeResult.success) {
                     if (typeResult.error instanceof UnsupportedAddressError) throw typeResult.error;
@@ -3241,6 +3207,11 @@ export class TLBRuntime<T = ParsedCell> {
                 if (fieldType.signed) {
                     return slice.loadVarIntBig(size);
                 } else {
+                    if (
+                        fieldType.upperBound &&
+                        (size ? slice.preloadUint(size) : 0) >= evaluator.evaluate(fieldType.upperBound)
+                    )
+                        throw new TLBDataError('VarUInteger byte length exceeds bound');
                     return slice.loadVarUintBig(size);
                 }
             }
@@ -3302,6 +3273,7 @@ export class TLBRuntime<T = ParsedCell> {
         builder: Builder,
         args: TLBFieldType[] = [],
         callerVariables = new Map<string, number | bigint>(),
+        enclosingTypes?: Map<string, TLBFieldType>,
     ): void {
         // Find matching constructor by kind
         const typeKind = (data as TypeCell).kind;
@@ -3346,10 +3318,10 @@ export class TLBRuntime<T = ParsedCell> {
         }
 
         // Initialize variables map for constraint evaluation and add positional aliases
-        const variables = new Map<string, number | bigint>();
+        const variables = new Map<string, number | bigint>(type.isAnon ? callerVariables : undefined);
 
         const resultArguments: { expression: _TLBMathExpr; expected: number }[] = [];
-        const typeParams = new Map<string, TLBFieldType>();
+        const typeParams = new Map<string, TLBFieldType>(type.isAnon ? enclosingTypes : undefined);
         for (const [i, param] of constructor.parameters.entries()) {
             const arg = args[i];
             if (!arg) continue;
@@ -3406,6 +3378,12 @@ export class TLBRuntime<T = ParsedCell> {
             }
         }
 
+        for (const field of constructor.fields) {
+            if (!field.implicit || !field.name || constructor.variablesMap.get(field.name)?.type !== '#') continue;
+            const supplied = data[field.name];
+            if (supplied !== undefined && (!Number.isSafeInteger(supplied) || supplied < 0 || supplied > 0xffffffff))
+                throw new TLBDataError(`Invalid natural parameter ${field.name}`);
+        }
         // Add positional aliases for all variables
         for (let i = 0; i < constructor.variables.length; i++) {
             const v = constructor.variables[i];
@@ -3431,39 +3409,7 @@ export class TLBRuntime<T = ParsedCell> {
 
         // Bind compound result arguments after collecting explicit fields and simple parameters.
         const evaluator = new MathExprEvaluator(variables);
-        let solvedArgument: boolean;
-        do {
-            solvedArgument = false;
-            for (const { expression, expected } of resultArguments) {
-                const solved = this.solveEquality(
-                    {
-                        kind: 'TLBBinaryOp',
-                        operation: '=',
-                        left: expression,
-                        right: { kind: 'TLBNumberExpr', n: expected },
-                    },
-                    variables,
-                    evaluator,
-                );
-                if (solved) {
-                    if (!Number.isSafeInteger(solved.value) || solved.value < 0) {
-                        throw new TLBDataError(`Invalid natural parameter ${solved.name} for ${type.name}`);
-                    }
-                    variables.set(solved.name, solved.value);
-                    solvedArgument = true;
-                }
-            }
-        } while (solvedArgument);
-        for (const { expression, expected } of resultArguments) {
-            const unknown = [...this.extractVariablesFromExpr(expression)].find((name) => !variables.has(name));
-            if (unknown) throw new TLBDataError(`Cannot infer parameter ${unknown} for ${type.name}`);
-            const actual = evaluator.evaluate(expression);
-            if (actual !== expected) {
-                throw new TLBDataError(
-                    `Conflicting result parameter for ${type.name}: expected ${expected}, got ${actual}`,
-                );
-            }
-        }
+        this.bindResultArguments(resultArguments, variables, type.name);
 
         let anonymousIndex = 0;
         const writeFields = (fields: TLBField[], target: Builder) => {
@@ -3506,7 +3452,7 @@ export class TLBRuntime<T = ParsedCell> {
                     fieldValue = data.anon0;
                 }
                 if (fieldValue === undefined) throw new TLBDataError(`Missing required field ${name} in ${type.name}`);
-                this.serializeField({ ...field, fieldType }, fieldValue, target, variables);
+                this.serializeField({ ...field, fieldType }, fieldValue, target, variables, typeParams);
             }
         };
         writeFields(constructor.fields, builder);
@@ -4203,6 +4149,7 @@ export class TLBRuntime<T = ParsedCell> {
         value: unknown,
         builder: Builder,
         variables: Map<string, number | bigint>,
+        typeParams?: Map<string, TLBFieldType>,
     ): void {
         if (
             field.name &&
@@ -4213,7 +4160,7 @@ export class TLBRuntime<T = ParsedCell> {
             variables.set(field.name, typeof value === 'bigint' ? value : Number(value));
         }
 
-        this.serializeFieldType(field.fieldType, value, builder, variables);
+        this.serializeFieldType(field.fieldType, value, builder, variables, typeParams);
     }
 
     private bindTypeParameters(type: TLBFieldType, params: Map<string, TLBFieldType>): TLBFieldType {
@@ -4265,6 +4212,7 @@ export class TLBRuntime<T = ParsedCell> {
         value: any,
         builder: Builder,
         variables: Map<string, number | bigint>,
+        typeParams?: Map<string, TLBFieldType>,
     ): void {
         const evaluator = new MathExprEvaluator(variables);
 
@@ -4557,7 +4505,7 @@ export class TLBRuntime<T = ParsedCell> {
                     }
                 }
 
-                this.serializeType(type, value, builder, fieldType.arguments, variables);
+                this.serializeType(type, value, builder, fieldType.arguments, variables, typeParams);
                 break;
             }
 
@@ -4577,7 +4525,7 @@ export class TLBRuntime<T = ParsedCell> {
 
             case 'TLBCellInsideType': {
                 const nestedBuilder = beginCell();
-                this.serializeFieldType(fieldType.value, value, nestedBuilder, variables);
+                this.serializeFieldType(fieldType.value, value, nestedBuilder, variables, typeParams);
                 builder.storeRef(nestedBuilder.endCell());
                 break;
             }
@@ -4608,7 +4556,7 @@ export class TLBRuntime<T = ParsedCell> {
 
                 // Otherwise, serialize the inner type to a nested cell and store as ref
                 const nestedBuilder = beginCell();
-                this.serializeFieldType(fieldType.value, value, nestedBuilder, variables);
+                this.serializeFieldType(fieldType.value, value, nestedBuilder, variables, typeParams);
                 builder.storeRef(nestedBuilder.endCell());
                 break;
             }
@@ -4624,6 +4572,12 @@ export class TLBRuntime<T = ParsedCell> {
                 if (fieldType.signed) {
                     builder.storeVarInt(value, size);
                 } else {
+                    if (fieldType.upperBound) {
+                        const n = BigInt(value);
+                        const bytes = n === 0n ? 0 : Math.ceil(n.toString(16).length / 2);
+                        if (bytes >= evaluator.evaluate(fieldType.upperBound))
+                            throw new TLBDataError('VarUInteger byte length exceeds bound');
+                    }
                     builder.storeVarUint(value, size);
                 }
                 break;
@@ -4673,6 +4627,44 @@ export class TLBRuntime<T = ParsedCell> {
         return vars;
     }
 
+    private bindResultArguments(
+        resultArguments: { expression: _TLBMathExpr; expected: number }[],
+        variables: Map<string, number | bigint>,
+        typeName: string,
+    ): void {
+        const evaluator = new MathExprEvaluator(variables);
+        let solvedArgument: boolean;
+        do {
+            solvedArgument = false;
+            for (const { expression, expected } of resultArguments) {
+                const solved = this.solveEquality(
+                    {
+                        kind: 'TLBBinaryOp',
+                        operation: '=',
+                        left: expression,
+                        right: { kind: 'TLBNumberExpr', n: expected },
+                    },
+                    variables,
+                    evaluator,
+                );
+                if (solved) {
+                    variables.set(solved.name, solved.value);
+                    solvedArgument = true;
+                }
+            }
+        } while (solvedArgument);
+        for (const { expression, expected } of resultArguments) {
+            const unknown = [...this.extractVariablesFromExpr(expression)].find((name) => !variables.has(name));
+            if (unknown) throw new TLBDataError(`Cannot infer parameter ${unknown} for ${typeName}`);
+            const actual = evaluator.evaluate(expression);
+            if (actual !== expected) {
+                throw new TLBDataError(
+                    `Conflicting result parameter for ${typeName}: expected ${expected}, got ${actual}`,
+                );
+            }
+        }
+    }
+
     private solveEquality(
         expr: _TLBMathExpr,
         variables: Map<string, number | bigint>,
@@ -4698,6 +4690,7 @@ export class TLBRuntime<T = ParsedCell> {
         const sideWithUnknown = leftUnknown ? expr.left : expr.right;
         const sideWithoutUnknown = leftUnknown ? expr.right : expr.left;
 
+        let solvedValue: number | null;
         try {
             const targetValue = evaluator.evaluate(sideWithoutUnknown);
             // Simple solver for common TL-B equations: n = expr, expr = n, n + k = m, etc.
@@ -4733,15 +4726,14 @@ export class TLBRuntime<T = ParsedCell> {
                 return null;
             };
 
-            const solvedValue = solve(sideWithUnknown, targetValue);
-            if (solvedValue !== null) {
-                return { name: unknownName, value: solvedValue };
-            }
+            solvedValue = solve(sideWithUnknown, targetValue);
         } catch {
-            // Ignore if algebraic solution not found
+            return null;
         }
-
-        return null;
+        if (solvedValue === null) return null;
+        if (!Number.isSafeInteger(solvedValue) || solvedValue < 0 || solvedValue > 0xffffffff)
+            throw new TLBDataError(`Invalid natural parameter ${unknownName}: ${solvedValue}`);
+        return { name: unknownName, value: solvedValue };
     }
 
     private loadBigInt(slice: Slice, bits: number, signed = false): bigint {

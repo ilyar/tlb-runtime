@@ -16,6 +16,7 @@ export enum TypeExprType {
 }
 
 export class TypeExpr {
+    declare paramName?: string;
     tp: TypeExprType;
     typeApplied: Type | null;
     args: TypeExpr[];

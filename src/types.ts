@@ -86,6 +86,7 @@ export interface TLBExprMathType {
 
 export interface TLBVarIntegerType {
     kind: 'TLBVarIntegerType';
+    upperBound?: TLBMathExpr;
     n: TLBMathExpr;
     signed: boolean;
 }
@@ -205,6 +206,7 @@ export interface TLBConstructor {
 
 // Type definition (contains multiple constructors)
 export interface TLBType {
+    isAnon?: boolean;
     name: string;
     constructors: TLBConstructor[];
 }
