@@ -112,7 +112,7 @@ describe('public encoding of alpha.4 records', () => {
 
 describe.each(['#< 3', '#<= 2'])('legacy bounded natural (%s)', (bound) => {
     const runtime = parseTLB(`_ x:(${bound}) = T;`);
-    const options = { rootType: 'T' };
+    const options = { rootType: 'T', exact: true };
 
     it('round-trips the largest permitted value', () => {
         const cell = beginCell().storeUint(2, 2).endCell();
@@ -137,7 +137,7 @@ it('writes only the tag for constructors with implicit parameters', () => {
 it('leaves the parent field after an implicit argument intact', () => {
     const runtime = parseTLB('a$0 {n:#} = E n; _ e:(E 3) y:uint64 = Bar;');
     const wire = beginCell().storeBit(0).storeUint(123, 64).endCell();
-    const data = runtime.decodeCell(wire);
+    const data = runtime.decodeCell(wire, { exact: true });
     expect(data).toEqual({ kind: 'Bar', e: { kind: 'E', n: 3 }, y: 123n });
     expect(runtime.encodeCell(data).equals(wire)).toBe(true);
 });
@@ -169,7 +169,7 @@ it.each([
     const schema = `_ a:${type} = Foo;`;
     expect(encodeCell(schema, parseCell(schema, wire)).equals(wire)).toBe(true);
     const runtime = unwrap(TLBRuntime.from(schema));
-    expect(runtime.encodeCell(runtime.decodeCell(wire)).equals(wire)).toBe(true);
+    expect(runtime.encodeCell(runtime.decodeCell(wire, { exact: true })).equals(wire)).toBe(true);
 });
 
 it('keeps the binding of W.X out of the unrelated Inner constructor', () => {
@@ -178,7 +178,7 @@ it('keeps the binding of W.X out of the unrelated Inner constructor', () => {
     const wire = beginCell().storeUint(0x1234, 16).storeUint(0xab, 8).endCell();
     const expected = { kind: 'R', r: { kind: 'W', v: 0x1234, w: { kind: 'Inner', x: { kind: 'X', v: 0xab } } } };
     expect(unwrap(runtime.deserialize(wire))).toEqual(expected);
-    expect(runtime.decodeCell(wire, { rootType: 'R' })).toEqual(expected);
+    expect(runtime.decodeCell(wire, { rootType: 'R', exact: true })).toEqual(expected);
 });
 
 it('round-trips the legacy bigint shape of explicitly declared Coins and Grams', () => {

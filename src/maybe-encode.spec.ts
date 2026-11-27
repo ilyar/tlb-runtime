@@ -19,7 +19,7 @@ it.each([
     ['none', { kind: 'Maybe_none' }, absent],
     ['some', { kind: 'Maybe_some', item: inner }, present],
 ] as const)('round-trips the declared %s constructor', (_name, entry, wire) => {
-    const box = runtime.decodeCell(wire, { rootType: 'Box' });
+    const box = runtime.decodeCell(wire, { rootType: 'Box', exact: true });
     expect(box.entry).toEqual(entry);
     expect(runtime.encodeCell(box).equals(wire)).toBe(true);
 });

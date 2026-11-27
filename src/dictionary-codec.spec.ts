@@ -8,7 +8,7 @@ const byte = Dictionary.Values.Uint(8);
 
 function decodeByteDictionary(input: Cell) {
     const runtime = runtimeBy(TLBLib.HashmapE + '_ entries:(HashmapE 8 uint8) = Box;');
-    const { entries } = runtime.decodeCell(input, { rootType: 'Box' });
+    const { entries } = runtime.decodeCell(input, { rootType: 'Box', exact: true });
     if (!(entries instanceof Dictionary)) throw new Error('Expected Dictionary');
     return entries;
 }
@@ -42,7 +42,7 @@ it('keeps a native codec for direct dictionaries with wide keys and reference le
     const id = 1n << 40n;
     expected.set(id, beginCell().storeUint(42, 8).endCell());
     const input = beginCell().storeDictDirect(expected).endCell();
-    const { entries } = runtime.decodeCell(input, { rootType: 'Box' });
+    const { entries } = runtime.decodeCell(input, { rootType: 'Box', exact: true });
     if (!(entries instanceof Dictionary)) throw new Error('Expected Dictionary');
     expect(beginCell().storeDictDirect(entries).endCell().equals(input)).toBe(true);
     entries.set(id, beginCell().storeUint(43, 8).endCell());

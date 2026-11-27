@@ -6,3 +6,7 @@ export { Success, Failure, Result, unwrap } from './Result';
 export { blockSchema } from './blockSchema';
 export { crc32 } from './utils';
 export { TLBMathExpr, TLBConstructorTag, TLBFieldType, TLBField, TLBConstructor, TLBType } from './types';
+export type { TypeExportOptions } from './type-graph';
+export type { JSONSchemaOptions, JSONSchemaObject } from './json-schema';
+export type { TypeScriptOptions } from './typescript-gen';
+export type { CellInput } from './common';

@@ -28,7 +28,7 @@ it.each([parseTLB, runtimeBy])('decodes a 1023-reference list with %p', (compile
 it.each([parseTLB, runtimeBy])('reads a 99-entry VmStack with %p', (compile) => {
     const wire = serializeTuple(Array.from({ length: 99 }, (_, i) => ({ type: 'int', value: BigInt(i) })));
     const runtime = compile(TLBTVMReflection);
-    expect(runtime.decodeCell(wire, { rootType: 'VmStack' })).toMatchObject({
+    expect(runtime.decodeCell(wire, { rootType: 'VmStack', exact: true })).toMatchObject({
         kind: 'VmStack',
         depth: 99,
     });
@@ -50,7 +50,7 @@ it.each([parseTLB, runtimeBy])('reads 300 nested dictionaries with %p', (compile
     }
     type Node = { kind: 'D'; d: Dictionary<number, Node> };
     const runtime = compile<Node>('_ d:(HashmapE 8 ^D) = D;');
-    let node = runtime.decodeCell(wire, { rootType: 'D' });
+    let node = runtime.decodeCell(wire, { rootType: 'D', exact: true });
     for (let i = 0; i < depth; i++) node = node.d.get(1)!;
     expect(node.d.size).toBe(0);
 });

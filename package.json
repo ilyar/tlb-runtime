@@ -5,7 +5,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist/**/*"
+    "dist/**/*",
+    "type-export.js",
+    "type-export.d.ts"
   ],
   "prettier": "@ton/toolchain/prettier",
   "scripts": {
@@ -47,6 +49,7 @@
     "@ton/toolchain": "github:the-ton-tech/toolchain#v1",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
+    "ajv": "^6.14.0",
     "eslint": "^9.39.2",
     "jest": "^30.2.0",
     "prettier": "^3.5.3",
