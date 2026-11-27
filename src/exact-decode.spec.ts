@@ -52,3 +52,8 @@ it.each([
     const extra = beginCell().storeUint(5, 32).storeSlice(wire.beginParse()).endCell();
     expect(() => runtime.decodeCell(extra, options)).toThrow(TLBDataError);
 });
+
+it('reports an incomplete root even when a fieldless helper exactly fits the empty cell', () => {
+    const runtime = runtimeBy('unit$_ = Unit; _ x:uint32 = Root;');
+    expect(() => runtime.decodeCell(beginCell().endCell(), { exact: true })).toThrow(TLBDataError);
+});

@@ -224,6 +224,7 @@ export interface DecodeCellOptions {
 
 type DecodeFrame<T, R = Result<T>> = Generator<DecodeFrame<T>, R, Result<T>>;
 class DecodeDepthError extends TLBRuntimeError {}
+class TrailingRootDataError extends TLBDataError {}
 
 export interface TLBRuntimeConfig {
     autoText: boolean;
@@ -407,8 +408,20 @@ export class TLBRuntime<T = ParsedCell> {
             const type = this.typeMap.get(name);
             if (!type || type.isAnon) continue;
             const result = this.runDecode(this.deserializeType(type, slice.clone(), [], undefined, undefined, exact));
-            if (result.success || (name === this.lastTypeName && result.error instanceof UnsupportedAddressError))
-                return result;
+            if (result.success) return result;
+            if (exact && result.error instanceof TrailingRootDataError) continue;
+            // Only an incompatible root tag rules this type out. A matching prefix may be truncated.
+            const compatible = type.constructors.some(({ tag }) => {
+                const bits = Math.min(slice.remainingBits, tag.bitLen);
+                return bits === 0 || slice.preloadUintBig(bits) === BigInt(tag.binary) >> BigInt(tag.bitLen - bits);
+            });
+            if (compatible) {
+                if (result.error instanceof TLBDataError) return result;
+                return {
+                    success: false,
+                    error: new TLBDataError(`Cannot decode ${name}: ${result.error.message}`, result.error),
+                };
+            }
         }
         return {
             success: false,
@@ -577,7 +590,7 @@ export class TLBRuntime<T = ParsedCell> {
                 );
                 if (result.success) {
                     if (exact && (prev.remainingBits || prev.remainingRefs)) {
-                        partialMatch = new TLBDataError(
+                        partialMatch = new TrailingRootDataError(
                             `${type.name}: ${prev.remainingBits} bits and ${prev.remainingRefs} refs remaining`,
                         );
                         continue;
