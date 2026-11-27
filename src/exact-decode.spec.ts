@@ -4,7 +4,7 @@ import { runtimeBy, TLBDataError, unwrap } from './index';
 
 const cell = beginCell().storeUint(42, 8).endCell();
 it('continues after partial matches within one type and between root types', () => {
-    const runtime = runtimeBy('full$_ x:uint8 = Value; short$_ x:uint4 = Value; _ x:uint4 = Other;');
+    const runtime = runtimeBy('short$_ x:uint4 = Value; full$_ x:uint8 = Value; _ x:uint4 = Other;');
     expect(runtime.decodeCell(cell).kind).toBe('Other');
     expect(runtime.decodeCell(cell, { rootType: 'Value' }).kind).toBe('Value_short');
     for (const rootType of [undefined, 'Value']) {
