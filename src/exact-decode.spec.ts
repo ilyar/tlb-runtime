@@ -57,3 +57,12 @@ it('reports an incomplete root even when a fieldless helper exactly fits the emp
     const runtime = runtimeBy('unit$_ = Unit; _ x:uint32 = Root;');
     expect(() => runtime.decodeCell(beginCell().endCell(), { exact: true })).toThrow(TLBDataError);
 });
+
+it('finds an earlier exact root after a missing reference or an incomplete tag', () => {
+    const leaf = beginCell().endCell();
+    const runtime = runtimeBy('_ a:^Cell = Inner; _ i:^Inner = Outer;');
+    const cell = beginCell().storeRef(leaf).endCell();
+    expect(runtime.decodeCell(cell, { exact: true })).toEqual({ kind: 'Inner', a: leaf });
+    const tagged = runtimeBy('a$10 = A; b$1010 = B;');
+    expect(tagged.decodeCell(beginCell().storeUint(2, 2).endCell(), { exact: true })).toEqual({ kind: 'A' });
+});
