@@ -1,3 +1,6 @@
+import { beginCell } from '@ton/core';
+
+import { runtimeBy } from '../TLBRuntime';
 import { groupCorpusFlat } from '../tesdata';
 import { UnpackedSize, packSize, Schema, unpackSize, PackedSize } from '.';
 import { TLBSchemaError } from '../errors';
@@ -53,6 +56,16 @@ describe('Schema', () => {
         expect(actual.types).toMatchSnapshot();
     });
 
+    it.each([
+        ['>', 3, 2],
+        ['>=', 2, 1],
+        ['!=', 1, 2],
+    ] as const)('evaluates the %s constraint against the wire value', (op, valid, invalid) => {
+        const runtime = runtimeBy(`_ n:(## 8) { n ${op} 2 } = Example;`);
+        const read = (n: number) => runtime.decodeCell(beginCell().storeUint(n, 8).endCell(), { rootType: 'Example' });
+        expect(read(valid)).toEqual({ kind: 'Example', n: valid });
+        expect(() => read(invalid)).toThrow(/constraint violation/i);
+    });
 
     describe('test data', () => {
         test.each([

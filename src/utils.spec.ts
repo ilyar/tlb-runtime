@@ -1,4 +1,4 @@
-import { crc32 } from './utils';
+import { crc32 } from '.';
 
 describe('utils', () => {
     test('crc32', () => {
