@@ -18,6 +18,28 @@ describe('Schema', () => {
         }
     });
 
+    it('keeps the enclosing width and constraint in a flattened group', () => {
+        const schema = unwrap(Schema.from('_ n:uint4 ^[ y:uint8 x:(uint n) { y <= 2 } ] = Box;'));
+        const ctor = schema.getTLBTypes().get('Box')!.constructors[0];
+        expect(ctor.fields[1].subFields[1]).toMatchObject({
+            name: 'x',
+            fieldType: { bits: { kind: 'TLBVarExpr', x: 'n' } },
+        });
+        expect(ctor.constraints).toContainEqual(
+            expect.objectContaining({ operation: '<=', left: { kind: 'TLBVarExpr', x: 'y' } }),
+        );
+    });
+
+    it('keeps the wire tag and byte bound in the constructor model', () => {
+        const schema = unwrap(Schema.from('/* old#_ = Box; */ box#ab v:(VarUInteger 5) = Box;'));
+        const ctor = schema.getTLBTypes().get('Box')!.constructors[0];
+        expect(ctor.tag).toMatchObject({ bitLen: 8, binary: '0xab' });
+        expect(ctor.fields[0].fieldType).toMatchObject({
+            kind: 'TLBVarIntegerType',
+            upperBound: { kind: 'TLBNumberExpr', n: 5 },
+        });
+    });
+
     describe.each([
         ['Any', { maxBits: 2047, maxRefs: 7, minBits: 0, minRefs: 0 }, 0x7ff07n],
         ['OneRef', { maxBits: 0, maxRefs: 1, minBits: 0, minRefs: 1 }, 0x100000001n],
