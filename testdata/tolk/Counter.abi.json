@@ -1,0 +1,188 @@
+{
+    "abi_schema_version": "1.0",
+    "contract_name": "Counter",
+    "unique_types": [
+        { "kind": "void" },
+        { "kind": "int" },
+        { "kind": "slice" },
+        { "kind": "cell" },
+        { "kind": "builder" },
+        { "kind": "bool" },
+        { "kind": "coins" },
+        { "kind": "address" },
+        { "kind": "intN", "n": 32 },
+        { "kind": "uintN", "n": 32 },
+        { "kind": "intN", "n": 64 },
+        { "kind": "uintN", "n": 64 },
+        { "kind": "StructRef", "struct_name": "Increment" },
+        { "kind": "intN", "n": 16 },
+        { "kind": "StructRef", "struct_name": "Reset" },
+        { "kind": "StructRef", "struct_name": "Storage" },
+        { "kind": "StructRef", "struct_name": "Box", "type_args_ty_idx": [9] },
+        { "kind": "genericT", "name_t": "X" },
+        { "kind": "StructRef", "struct_name": "Box", "type_args_ty_idx": [17] },
+        { "kind": "AliasRef", "alias_name": "Command" },
+        {
+            "kind": "union",
+            "variants": [
+                { "variant_ty_idx": 12, "prefix_num": 66, "prefix_len": 8, "stack_type_id": 129, "stack_width": 2 },
+                { "variant_ty_idx": 14, "prefix_num": 67, "prefix_len": 8, "stack_type_id": 130, "stack_width": 1 }
+            ],
+            "stack_width": 3
+        },
+        { "kind": "StructRef", "struct_name": "Note" },
+        { "kind": "string" },
+        { "kind": "varuintN", "n": 16 },
+        { "kind": "uintN", "n": 16 },
+        { "kind": "mapKV", "key_ty_idx": 24, "value_ty_idx": 9 },
+        { "kind": "EnumRef", "enum_name": "Phase" },
+        { "kind": "uintN", "n": 8 },
+        { "kind": "cellOf", "inner_ty_idx": 21 },
+        { "kind": "nullable", "inner_ty_idx": 28 }
+    ],
+    "struct_instantiations": [
+        {
+            "ty_idx": 16,
+            "struct_name": "Box<uint32>",
+            "monomorphic_fields_ty_idx": [9]
+        }
+    ],
+    "alias_instantiations": [],
+    "declarations": [
+        {
+            "kind": "alias",
+            "name": "Command",
+            "ty_idx": 19,
+            "target_ty_idx": 20
+        },
+        {
+            "kind": "struct",
+            "name": "Box",
+            "ty_idx": 18,
+            "type_params": ["X"],
+            "fields": [
+                {
+                    "name": "value",
+                    "ty_idx": 17
+                }
+            ]
+        },
+        {
+            "kind": "struct",
+            "name": "Storage",
+            "ty_idx": 15,
+            "fields": [
+                {
+                    "name": "count",
+                    "ty_idx": 16
+                },
+                {
+                    "name": "body",
+                    "ty_idx": 19
+                },
+                {
+                    "name": "note",
+                    "ty_idx": 29
+                }
+            ]
+        },
+        {
+            "kind": "enum",
+            "name": "Phase",
+            "ty_idx": 26,
+            "encoded_as_ty_idx": 27,
+            "members": [
+                {
+                    "name": "idle",
+                    "value": "1"
+                },
+                {
+                    "name": "done",
+                    "value": "7"
+                }
+            ]
+        },
+        {
+            "kind": "struct",
+            "name": "Note",
+            "ty_idx": 21,
+            "fields": [
+                {
+                    "name": "text",
+                    "ty_idx": 22
+                },
+                {
+                    "name": "amount",
+                    "ty_idx": 23
+                },
+                {
+                    "name": "balances",
+                    "ty_idx": 25
+                },
+                {
+                    "name": "phase",
+                    "ty_idx": 26
+                }
+            ]
+        },
+        {
+            "kind": "struct",
+            "name": "Increment",
+            "ty_idx": 12,
+            "prefix": {
+                "prefix_num": 66,
+                "prefix_len": 8
+            },
+            "fields": [
+                {
+                    "name": "delta",
+                    "ty_idx": 13
+                },
+                {
+                    "name": "previous",
+                    "ty_idx": 3
+                }
+            ]
+        },
+        {
+            "kind": "struct",
+            "name": "Reset",
+            "ty_idx": 14,
+            "prefix": {
+                "prefix_num": 67,
+                "prefix_len": 8
+            },
+            "fields": [
+                {
+                    "name": "enabled",
+                    "ty_idx": 5
+                }
+            ]
+        }
+    ],
+    "storage": {
+        "storage_ty_idx": 15
+    },
+    "incoming_messages": [
+        {
+            "body_ty_idx": 12
+        },
+        {
+            "body_ty_idx": 14
+        }
+    ],
+    "incoming_external": [],
+    "outgoing_messages": [],
+    "emitted_events": [],
+    "get_methods": [
+        {
+            "tvm_method_id": 112821,
+            "name": "currentCount",
+            "parameters": [],
+            "return_ty_idx": 9
+        }
+    ],
+    "thrown_errors": [],
+    "compiler_name": "tolk",
+    "compiler_version": "1.5.0"
+}

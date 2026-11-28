@@ -20,6 +20,25 @@ Root inference tries earlier declarations after an incomplete tag, or when a tag
 
 With `autoText` enabled (the default), `bits` fields with a whole number of bytes decode as strings when their bytes form valid UTF-8 text. Tabs and line breaks are allowed. Invalid UTF-8 and other control characters keep the value as a `BitString`, preserving the original bytes for encoding.
 
+### Tolk ABI
+
+Tolk emits an ABI next to the Fift output when you compile a contract with `tolk -o Counter.fif Counter.tolk`. Pass the parsed ABI object or its JSON text to `runtimeBy`. Use the same cell codec for both schema formats. [Contract declaration and ABI](https://docs.ton.org/tolk/features/contract-abi)
+
+```typescript
+const fromABI = runtimeBy(counterABI);
+const storage = fromABI.decodeCell(cell, { rootType: 'Storage', exact: true });
+const restored = fromABI.encodeCell(storage);
+
+const tlb = fromABI.toTLB();
+const abi = runtimeBy('_ count:uint32 = Storage;').toTolkABI();
+```
+
+`toTLB()` returns the original TL-B text or the cell declarations derived from ABI. `toTolkABI()` returns an independent copy of the original ABI, including getters, events and compiler metadata. For a TL-B input it builds an ABI 1.0 type table with empty contract sections. Keep the original ABI when those sections matter.
+
+The adapter supports concrete structs, compiler-resolved generic instantiations, aliases, enums, tagged unions, nullable fields, fixed integers and bits, unsigned varuint16/32, booleans, coins, addresses, strings, cells, typed references and maps with unsigned integer keys. Union tags come from the ABI prefix table. Cell layouts use the declared field type even when a client type override is present. A generated ABI describes cell layouts; its stack type IDs belong to that generated document.
+
+Unsupported layouts raise `TLBSchemaError`. These include executable custom serializers, uninstantiated generic layouts and TL-B constructors with dependent widths or constraints. Use the original schema to process these layouts.
+
 ### Simple
 
 ```typescript

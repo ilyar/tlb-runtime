@@ -13,6 +13,7 @@ import {
     DictionaryKey,
 } from '@ton/core';
 
+import { abiToTLB, tlbToABI, type TolkABI } from './tolk-abi';
 import { compileLegacySchema, legacyFieldName } from './legacySchema';
 import { Schema } from './schema';
 import { readSnakeString, writeSnakeString } from './snake-string';
@@ -279,11 +280,17 @@ export class TLBRuntime<T = ParsedCell> {
         }
     }
 
-    static from<T = ParsedCell>(schema: string, config: Partial<TLBRuntimeConfig> = {}): Result<TLBRuntime<T>> {
+    static from<T = ParsedCell>(
+        schema: string | TolkABI,
+        config: Partial<TLBRuntimeConfig> = {},
+    ): Result<TLBRuntime<T>> {
         return TLBRuntime.create(schema, config, compileLegacySchema);
     }
 
-    static compile<T = TypedCell>(schema: string, config: Partial<TLBRuntimeConfig> = {}): Result<TLBRuntime<T>> {
+    static compile<T = TypedCell>(
+        schema: string | TolkABI,
+        config: Partial<TLBRuntimeConfig> = {},
+    ): Result<TLBRuntime<T>> {
         return TLBRuntime.create(schema, config);
     }
 
@@ -294,16 +301,32 @@ export class TLBRuntime<T = ParsedCell> {
         return result.value;
     }
 
+    private sourceABI?: TolkABI;
+
+    toTLB(): string {
+        return this.schema;
+    }
+
+    toTolkABI(): TolkABI {
+        return this.sourceABI ? structuredClone(this.sourceABI) : tlbToABI(this.typeMap, this.lastTypeName);
+    }
+
     private static create<T>(
-        schema: string,
+        schema: string | TolkABI,
         config: Partial<TLBRuntimeConfig>,
         compileSchema?: (code: string) => { types: ReadonlyMap<string, TLBType>; lastTypeName: string | undefined },
     ): Result<TLBRuntime<T>> {
         try {
-            return {
-                success: true,
-                value: new TLBRuntime(schema, config, compileSchema),
-            };
+            const input =
+                typeof schema === 'string' && schema.trimStart().startsWith('{') ? JSON.parse(schema) : schema;
+            const abi = typeof input === 'string' ? undefined : structuredClone(input);
+            const runtime = new TLBRuntime<T>(
+                typeof input === 'string' ? input : abiToTLB(abi),
+                config,
+                typeof input === 'string' ? compileSchema : undefined,
+            );
+            runtime.sourceABI = abi;
+            return { success: true, value: runtime };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to convert schema';
             return { success: false, error: new TLBSchemaError(errorMessage, error) };
@@ -320,8 +343,8 @@ export class TLBRuntime<T = ParsedCell> {
         return this.getTypes();
     }
 
-    changeSchema(schema: string): Result<TLBRuntime<T>> {
-        if (this.schema === schema) {
+    changeSchema(schema: string | TolkABI): Result<TLBRuntime<T>> {
+        if (!this.sourceABI && this.schema === schema) {
             return {
                 success: true,
                 value: this,
@@ -4826,12 +4849,15 @@ export class TLBRuntime<T = ParsedCell> {
 }
 
 // Export a simple API for users
-export function runtimeBySchema<T = TypedCell>(schema: string): TLBRuntime<T> {
+export function runtimeBySchema<T = TypedCell>(schema: string | TolkABI): TLBRuntime<T> {
     return unwrap(TLBRuntime.compile(schema));
 }
 
-export function runtimeBy<T = TypedCell>(schema: string | Cell, config?: Partial<TLBRuntimeConfig>): TLBRuntime<T> {
-    if (typeof schema === 'string') return unwrap(TLBRuntime.compile<T>(schema, config));
+export function runtimeBy<T = TypedCell>(
+    schema: string | Cell | TolkABI,
+    config?: Partial<TLBRuntimeConfig>,
+): TLBRuntime<T> {
+    if (!(schema instanceof Cell)) return unwrap(TLBRuntime.compile<T>(schema, config));
     throw new TLBSchemaError('Not implemented');
 }
 

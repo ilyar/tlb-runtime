@@ -10,3 +10,5 @@ export type { TypeExportOptions } from './type-graph';
 export type { JSONSchemaOptions, JSONSchemaObject } from './json-schema';
 export type { TypeScriptOptions } from './typescript-gen';
 export type { CellInput } from './common';
+
+export type { TolkABI } from './tolk-abi';
