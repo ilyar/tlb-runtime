@@ -30,6 +30,16 @@ import { BitPrefixCollection } from './BitPrefixCollection';
 import { Field } from './Field';
 import { constructorTag } from './constructorTag';
 
+function fieldParameter(idx: number, expr: TypeExpr) {
+    return {
+        idx,
+        isNat: expr.isNat || expr.isNatSubtype || expr.typeApplied?.isInteger === TypeInteger.Unsigned,
+        isType: expr.typeApplied?.name === 'Type',
+    };
+}
+
+type FieldParameters = Map<number, ReturnType<typeof fieldParameter>>;
+
 interface FieldDef {
     constructor: { name: string };
     name?: string | null;
@@ -501,7 +511,7 @@ export class Schema {
             });
 
             this.declarationText.set(constructor, source);
-            const params = new Map<number, { idx: number; isNat: boolean }>();
+            const params: FieldParameters = new Map();
 
             // Parse fields
             for (let i = 0; i < declaration.fields.length; i++) {
@@ -567,7 +577,7 @@ export class Schema {
                 }
 
                 if (fieldNameIdx !== 0) {
-                    params.set(fieldNameIdx, { idx: i, isNat: fieldTypeExpr.isNat || fieldTypeExpr.isNatSubtype });
+                    params.set(fieldNameIdx, fieldParameter(i, fieldTypeExpr));
                 }
 
                 // Detect implicit field
@@ -877,11 +887,7 @@ export class Schema {
      * Returns the created Type which can then be referenced.
      */
 
-    private createAnonymousType(
-        fields: FieldDef[],
-        where: SrcLocation,
-        parentParams?: Map<number, { idx: number; isNat: boolean }>,
-    ): Type {
+    private createAnonymousType(fields: FieldDef[], where: SrcLocation, parentParams?: FieldParameters): Type {
         // Find the next anonymous type that was pre-registered in first pass
         let type: Type | undefined;
         while (this.nextAnonymousTypeIdx < this.types.length) {
@@ -926,7 +932,7 @@ export class Schema {
         });
 
         // Parse fields using parent params for name resolution
-        const localParams = new Map<number, { idx: number; isNat: boolean }>(parentParams);
+        const localParams = new Map(parentParams);
 
         for (let i = 0; i < fields.length; i++) {
             const fieldDecl = fields[i];
@@ -970,7 +976,7 @@ export class Schema {
             }
 
             if (fieldNameIdx !== 0) {
-                localParams.set(fieldNameIdx, { idx: i, isNat: fieldTypeExpr.isNat || fieldTypeExpr.isNatSubtype });
+                localParams.set(fieldNameIdx, fieldParameter(i, fieldTypeExpr));
             }
 
             const isImplicit = fieldDecl instanceof FieldBuiltinDef || fieldDecl instanceof FieldCurlyExprDef;
@@ -1036,7 +1042,7 @@ export class Schema {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         expr: any,
         where: SrcLocation,
-        params?: Map<number, { idx: number; isNat: boolean }>,
+        params?: FieldParameters,
     ): TypeExpr {
         if (!expr) {
             return new TypeExpr(TypeExprType.Type);
@@ -1293,8 +1299,9 @@ export class Schema {
             // Check in params
             const nameId = this.symbols.lookup(exprName);
             if (params && params.has(nameId)) {
-                const { idx, isNat } = params.get(nameId)!;
+                const { idx, isNat, isType } = params.get(nameId)!;
                 const paramExpr = new TypeExpr(TypeExprType.Param, null, [], idx, isNat, isNat);
+                paramExpr.isTypeParameter = isType;
                 paramExpr.paramName = exprName;
                 return this.registerConstExpr(paramExpr);
             }
@@ -1335,7 +1342,7 @@ export class Schema {
                 // Check in params
                 const nameId = this.symbols.lookup(exprName);
                 if (params && params.has(nameId)) {
-                    const { idx, isNat } = params.get(nameId)!;
+                    const { idx, isNat, isType } = params.get(nameId)!;
                     const paramExpr = new TypeExpr(
                         TypeExprType.Param,
                         null,
@@ -1344,6 +1351,7 @@ export class Schema {
                         isNat,
                         isNat,
                     );
+                    paramExpr.isTypeParameter = isType;
                     paramExpr.paramName = exprName;
                     return this.registerConstExpr(paramExpr);
                 }
@@ -1834,6 +1842,7 @@ export class Schema {
                     return { kind: 'TLBCoinsType' };
                 if (expr.typeApplied.isBuiltin && typeName === 'HashmapE') {
                     if (expr.args.length !== 2) throw new Error('HashmapE requires a key width and value type');
+                    if (!expr.args[1].isTypeArgument) throw new Error('Expected a value type for HashmapE');
                     return {
                         kind: 'TLBHashmapType',
                         key: this.typeExprToTLBMathExpr(expr.args[0], paramNameMap),
@@ -1895,7 +1904,15 @@ export class Schema {
                     };
                 }
 
-                const args: import('../types').TLBFieldType[] = expr.args.map((arg) => {
+                const args: import('../types').TLBFieldType[] = expr.args.map((arg, i) => {
+                    const expected = definition?.params[i];
+                    if (expected?.isNumericArgument) {
+                        const initialExpr = this.typeExprToTLBMathExpr(arg, paramNameMap);
+                        if (!arg.negated && arg.tp !== TypeExprType.IntConst)
+                            return { kind: 'TLBExprMathType', initialExpr };
+                    } else if (expected && !arg.isTypeArgument) {
+                        throw new Error(`Expected a type argument for ${typeName}`);
+                    }
                     if (arg.tp === TypeExprType.Param && arg.negated) {
                         return {
                             kind: 'TLBNegatedType',
@@ -2045,6 +2062,7 @@ export class Schema {
                 return { kind: 'TLBNumberExpr', n: expr.value };
             case TypeExprType.Param: {
                 const paramName = expr.paramName || paramNameMap?.get(expr.value) || `_${expr.value + 1}`;
+                if (!expr.isNat) throw new Error(`Cannot use ${paramName} as a number`);
                 return { kind: 'TLBVarExpr', x: paramName };
             }
             case TypeExprType.Add: {

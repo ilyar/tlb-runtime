@@ -562,10 +562,16 @@ export class TLBRuntime<T = ParsedCell> {
 
         let lastError: Error | undefined;
         for (const constructor of constructorsToTry) {
-            if (matchTags && constructor.tag.bitLen) {
-                const { bitLen, binary } = constructor.tag;
-                if (data.remainingBits < bitLen || data.preloadUintBig(bitLen) !== BigInt(binary)) continue;
-            }
+            const tag = constructor.tag;
+            const matchedTag =
+                tag.bitLen > 0 &&
+                data.remainingBits >= tag.bitLen &&
+                data.preloadUintBig(tag.bitLen) === BigInt(tag.binary);
+            if (matchTags && tag.bitLen && !matchedTag) continue;
+            const recordFailure = (error: Error) => {
+                if (matchedTag && error instanceof ConstructorMismatch) error = new TLBDataError(error.message, error);
+                if (!(error instanceof ConstructorMismatch) || !lastError) lastError = error;
+            };
             try {
                 const prev = data.clone();
                 const result = yield* this.deserializeConstructor(
@@ -590,13 +596,13 @@ export class TLBRuntime<T = ParsedCell> {
                     return result;
                 }
                 if (!result.success && result.error) {
-                    if (!(result.error instanceof ConstructorMismatch) || !lastError) lastError = result.error;
+                    recordFailure(result.error);
                 }
             } catch (e) {
                 if (e instanceof DecodeDepthError || e instanceof RangeError) throw e;
                 // Try next constructor on failure
                 if (e instanceof Error) {
-                    if (!(e instanceof ConstructorMismatch) || !lastError) lastError = e;
+                    recordFailure(e);
                 }
             }
         }
@@ -625,7 +631,7 @@ export class TLBRuntime<T = ParsedCell> {
             const expr =
                 arg.kind === 'TLBExprMathType' ? arg.initialExpr : arg.kind === 'TLBNumberType' ? arg.bits : undefined;
             if (expr && new MathExprEvaluator(initialVariables ?? new Map()).evaluate(expr) !== param.paramExpr.n) {
-                return { success: false, error: new TLBDataError(`Result parameter mismatch for ${kind}`) };
+                return { success: false, error: new ConstructorMismatch(`Result parameter mismatch for ${kind}`) };
             }
         }
 
@@ -2075,7 +2081,9 @@ export class TLBRuntime<T = ParsedCell> {
                 if (result !== 1) {
                     return {
                         success: false,
-                        error: new TLBDataError(`Failed to deserialize type ${kind} due to constraint violation`),
+                        error: new ConstructorMismatch(
+                            `Failed to deserialize type ${kind} due to constraint violation`,
+                        ),
                     };
                 }
             } catch (error) {
@@ -4681,7 +4689,7 @@ export class TLBRuntime<T = ParsedCell> {
             if (unknown) throw new TLBDataError(`Cannot infer parameter ${unknown} for ${typeName}`);
             const actual = evaluator.evaluate(expression);
             if (actual !== expected) {
-                throw new TLBDataError(
+                throw new ConstructorMismatch(
                     `Conflicting result parameter for ${typeName}: expected ${expected}, got ${actual}`,
                 );
             }

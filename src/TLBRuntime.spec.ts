@@ -1000,3 +1000,21 @@ it('uses the canonical implicit tag for a strict greater-than constraint', () =>
         expect(runtime.encodeCell({ kind: 'Test', a: 6 }).equals(wire)).toBe(true);
     }
 });
+
+it.each([parseCell, decodeCell])('tries an earlier root after a tagless constraint fails', (read) => {
+    const width = read === parseCell ? 'uint8' : '(## 8)';
+    const schema = `_ a:uint8 = A; _ b:${width} { b <= 3 } = B;`;
+    expect(read(schema, beginCell().storeUint(200, 8).endCell())).toEqual({ kind: 'A', a: 200 });
+});
+
+it.each([parseCell, decodeCell])('keeps a missing reference error after a nested tag matches', (read) => {
+    const schema = TLBStd.Maybe + '_ a:uint8 = Inner; _ m:(Maybe ^Inner) = Outer;';
+    expect(() => read(schema, beginCell().storeBit(1).storeUint(4, 8).endCell())).toThrow(TLBDataError);
+});
+
+it('tries an earlier root when a tagless result argument does not match', () => {
+    const runtime = runtimeBy('_ = Fixed 2; _ a:uint8 = A; _ f:(Fixed 3) = Outer;');
+    const byte = beginCell().storeUint(200, 8).endCell();
+    expect(runtime.decodeCell(byte)).toEqual({ kind: 'A', a: 200 });
+    expect(() => runtime.decodeCell(byte, { rootType: 'Outer' })).toThrow(TLBDataError);
+});
