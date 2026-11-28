@@ -16,6 +16,15 @@ export enum TypeExprType {
 
 export class TypeExpr {
     declare paramName?: string;
+    declare isTypeParameter?: boolean;
+
+    get isNumericArgument(): boolean {
+        return this.isNat && this.tp !== TypeExprType.Apply;
+    }
+
+    get isTypeArgument(): boolean {
+        return this.tp === TypeExprType.Param ? !!this.isTypeParameter : !this.isNumericArgument;
+    }
     tp: TypeExprType;
     typeApplied: Type | null;
     args: TypeExpr[];

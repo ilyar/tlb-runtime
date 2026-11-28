@@ -73,3 +73,15 @@ it('tries a fully consuming root after a nested anonymous group runs out of refe
     const wire = beginCell().storeRef(leaf).endCell();
     expect(runtime.decodeCell(wire, { exact: true })).toEqual({ kind: 'Earlier', leaf });
 });
+
+it('checks tagless constraints before accepting a fully consumed root', () => {
+    const runtime = runtimeBy('_ a:uint8 = A; _ b:(## 8) { b <= 3 } = B;');
+    const wire = beginCell().storeUint(200, 8).endCell();
+    expect(runtime.decodeCell(wire, { exact: true })).toEqual({ kind: 'A', a: 200 });
+});
+
+it('keeps a nested tagged read error over an exact alternative', () => {
+    const runtime = runtimeBy('some$1 r:^Cell = Option; _ a:uint8 = A; _ m:Option = Outer;');
+    const wire = beginCell().storeUint(128, 8).endCell();
+    expect(() => runtime.decodeCell(wire, { exact: true })).toThrow(TLBDataError);
+});

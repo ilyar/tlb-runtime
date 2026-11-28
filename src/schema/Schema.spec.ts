@@ -136,3 +136,19 @@ it.each(['n:(## Bar)', 'b:(bits Bar)', 'n:(## 8) { n = Bar }', 'd:(HashmapE Bar 
         expect(() => unwrap(Schema.from(`_ x:uint8 = Bar; _ ${field} = A;`))).toThrow(/Cannot use Bar as a number/);
     },
 );
+
+it.each([
+    '_ {X:Type} x:(## X) = A X;',
+    '_ n:uint8 = Foo; _ t:Foo x:(## t) = A;',
+    '_ a:Cell b:(## a) = Foo;',
+    '_ {X:Type} a:X b:(## a) = Foo X;',
+    '_ {X:Type} a:(bits X) = A X;',
+    '_ {X:Type} a:(X * uint8) = A X;',
+    '_ {X:Type} d:(HashmapE X uint8) = A X;',
+    '_ {X:Type} a:(## 8) { a = X } = A X; _ v:(A uint8) = B;',
+    '_ {n:#} a:(bits n) = A n; _ v:(A uint8) = B;',
+    '_ {X:Type} a:X = A X; _ v:(A 4) = B;',
+    '_ {X:Type} a:X = A X; _ c:Cell v:(A c) = B;',
+])('rejects incompatible numeric and type operands in %s', (schema) => {
+    expect(() => unwrap(Schema.from(schema))).toThrow(TLBSchemaError);
+});
