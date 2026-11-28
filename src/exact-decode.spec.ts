@@ -66,3 +66,10 @@ it('finds an earlier exact root after a missing reference or an incomplete tag',
     const tagged = runtimeBy('a$10 = A; b$1010 = B;');
     expect(tagged.decodeCell(beginCell().storeUint(2, 2).endCell(), { exact: true })).toEqual({ kind: 'A' });
 });
+
+it('tries a fully consuming root after a nested anonymous group runs out of references', () => {
+    const runtime = runtimeBy('_ leaf:^Cell = Earlier; _ ^[ ^[ a:uint8 ] ] = Outer;');
+    const leaf = beginCell().endCell();
+    const wire = beginCell().storeRef(leaf).endCell();
+    expect(runtime.decodeCell(wire, { exact: true })).toEqual({ kind: 'Earlier', leaf });
+});
